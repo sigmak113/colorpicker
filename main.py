@@ -12,6 +12,7 @@ import sys
 import os
 import json
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import colorchooser, simpledialog, messagebox
 
 try:
@@ -28,6 +29,30 @@ SLOT_COUNT = 5
 SWATCH_SIZE = 70
 MAGNIFIER_ZOOM = 8          # 스포이드 확대 배율
 MAGNIFIER_GRID_PX = 11      # 확대해서 보여줄 원본 픽셀 범위 (11x11)
+
+TAB_HEIGHT = 32
+TAB_RADIUS = 16
+TAB_PADX = 16
+TAB_FONT = ("맑은 고딕", 10, "bold")
+
+
+def draw_rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
+    """캔버스에 둥근 사각형(알약 모양) 그리기"""
+    points = [
+        x1 + radius, y1,
+        x2 - radius, y1,
+        x2, y1,
+        x2, y1 + radius,
+        x2, y2 - radius,
+        x2, y2,
+        x2 - radius, y2,
+        x1 + radius, y2,
+        x1, y2,
+        x1, y2 - radius,
+        x1, y1 + radius,
+        x1, y1,
+    ]
+    return canvas.create_polygon(points, smooth=True, **kwargs)
 
 PREVIEW_TEXT = "자막 미리보기"
 PREVIEW_W = 204
@@ -129,17 +154,17 @@ def hex_to_rgb(hex_color):
 
 
 def make_gradient_image(start_hex, end_hex, w, h):
-    """좌->우 수평 그라데이션 이미지를 생성"""
+    """아래(시작색) -> 위(끝색) 수직 그라데이션 이미지를 생성"""
     sr, sg, sb = hex_to_rgb(start_hex)
     er, eg, eb = hex_to_rgb(end_hex)
     img = Image.new("RGB", (w, h))
     draw = ImageDraw.Draw(img)
-    for x in range(w):
-        t = x / max(1, w - 1)
-        r = int(sr + (er - sr) * t)
-        g = int(sg + (eg - sg) * t)
-        b = int(sb + (eb - sb) * t)
-        draw.line([(x, 0), (x, h)], fill=(r, g, b))
+    for y in range(h):
+        t = y / max(1, h - 1)  # y=0(맨 위)일 때 t=0(끝색), y=h-1(맨 아래)일 때 t=1(시작색)
+        r = int(er + (sr - er) * t)
+        g = int(eg + (sg - eg) * t)
+        b = int(eb + (sb - eb) * t)
+        draw.line([(0, y), (w, y)], fill=(r, g, b))
     return img
 
 
@@ -311,20 +336,22 @@ class ColorPaletteApp(tk.Tk):
     # ---------- UI 구성 ----------
 
     def _build_ui(self):
-        set_area = tk.Frame(self, bg="#1e1e1e")
+        set_area = tk.Frame(self, bg="#1e1e1e", height=TAB_HEIGHT)
         set_area.pack(padx=16, pady=(14, 6), fill="x")
+        set_area.pack_propagate(False)
 
-        tk.Button(set_area, text="◀", width=2,
-                  command=lambda: self.set_canvas.xview_scroll(-2, "units")).pack(side="left")
+        self._make_arrow_button(set_area, "◀", lambda: self.set_canvas.xview_scroll(-2, "units")) \
+            .pack(side="left", padx=(0, 4))
 
-        self.set_canvas = tk.Canvas(set_area, height=34, bg="#1e1e1e", highlightthickness=0, width=280)
-        self.set_canvas.pack(side="left", fill="x", expand=True, padx=4)
+        self.set_canvas = tk.Canvas(set_area, height=TAB_HEIGHT, bg="#1e1e1e",
+                                     highlightthickness=0, width=250)
+        self.set_canvas.pack(side="left", fill="x", expand=True)
 
-        tk.Button(set_area, text="▶", width=2,
-                  command=lambda: self.set_canvas.xview_scroll(2, "units")).pack(side="left")
+        self._make_arrow_button(set_area, "▶", lambda: self.set_canvas.xview_scroll(2, "units")) \
+            .pack(side="left", padx=(4, 6))
 
-        tk.Button(set_area, text="+ 세트 추가", command=self._add_set, bg="#3a7bd5", fg="white") \
-            .pack(side="left", padx=(6, 0))
+        self._make_pill_button(set_area, "+ 세트 추가", self._add_set,
+                                fill="#3a7bd5", text_color="#ffffff").pack(side="left")
 
         self.set_scroll_frame = tk.Frame(self.set_canvas, bg="#1e1e1e")
         self.set_canvas.create_window((0, 0), window=self.set_scroll_frame, anchor="nw")
@@ -349,7 +376,8 @@ class ColorPaletteApp(tk.Tk):
 
             canvas = tk.Canvas(
                 frame, width=SWATCH_SIZE, height=SWATCH_SIZE,
-                highlightthickness=1, highlightbackground="#555555", cursor="hand2"
+                highlightthickness=1, highlightbackground="#555555", highlightcolor="#555555",
+                takefocus=0, cursor="hand2"
             )
             canvas.pack()
             canvas.bind("<Button-1>", lambda e, s=slot: self._on_swatch_click(s))
@@ -390,29 +418,53 @@ class ColorPaletteApp(tk.Tk):
         self.white_canvas.create_rectangle(0, 0, PREVIEW_W, PREVIEW_H, fill="#ffffff", outline="")
         self.black_canvas.create_rectangle(0, 0, PREVIEW_W, PREVIEW_H, fill="#000000", outline="")
 
+    # ---------- 버튼 생성 헬퍼 (이미지2 스타일 알약형 UI) ----------
+
+    def _make_arrow_button(self, parent, text, command):
+        """화살표는 세트 탭과 구분되도록 원형 회색 버튼으로"""
+        size = TAB_HEIGHT
+        canvas = tk.Canvas(parent, width=size, height=size, bg="#1e1e1e", highlightthickness=0)
+        canvas.create_oval(1, 1, size - 1, size - 1, fill="#3a3a3a", outline="")
+        canvas.create_text(size / 2, size / 2, text=text, fill="#cccccc", font=("맑은 고딕", 10, "bold"))
+        canvas.bind("<Button-1>", lambda e: command())
+        return canvas
+
+    def _make_pill_button(self, parent, text, command, fill, text_color, outline=""):
+        font = tkfont.Font(family=TAB_FONT[0], size=TAB_FONT[1], weight="bold")
+        w = font.measure(text) + TAB_PADX * 2
+        canvas = tk.Canvas(parent, width=w, height=TAB_HEIGHT, bg="#1e1e1e", highlightthickness=0)
+        draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
+        canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color, font=(TAB_FONT[0], TAB_FONT[1], "bold"))
+        canvas.bind("<Button-1>", lambda e: command())
+        return canvas
+
     # ---------- 세트 관리 ----------
 
     def _rebuild_set_buttons(self):
         for w in self.set_scroll_frame.winfo_children():
             w.destroy()
         self.set_buttons = []
-        for i in range(len(self.data["sets"])):
-            btn = tk.Button(self.set_scroll_frame, text=self.data["set_names"][i], width=8)
-            btn.grid(row=0, column=i, padx=3)
-            btn.config(command=lambda idx=i: self._switch_set(idx))
-            btn.bind("<Double-Button-1>", lambda e, idx=i: self._rename_set(idx))
-            btn.bind("<Button-3>", lambda e, idx=i: self._delete_set(idx))
-            self.set_buttons.append(btn)
-        self._refresh_set_buttons()
-
-    def _refresh_set_buttons(self):
+        font = tkfont.Font(family=TAB_FONT[0], size=TAB_FONT[1], weight="bold")
         current = self.data["current_set"]
-        for i, btn in enumerate(self.set_buttons):
-            btn.config(text=self.data["set_names"][i])
-            if i == current:
-                btn.config(relief="sunken", bg="#3a7bd5", fg="white", activebackground="#3a7bd5")
-            else:
-                btn.config(relief="raised", bg="#f0f0f0", fg="black")
+
+        for i in range(len(self.data["sets"])):
+            text = self.data["set_names"][i]
+            selected = (i == current)
+            fill = "#111111" if selected else "#ffffff"
+            text_color = "#ffffff" if selected else "#111111"
+            outline = "" if selected else "#cccccc"
+
+            w = font.measure(text) + TAB_PADX * 2
+            canvas = tk.Canvas(self.set_scroll_frame, width=w, height=TAB_HEIGHT,
+                                bg="#1e1e1e", highlightthickness=0)
+            draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
+            canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
+                                font=(TAB_FONT[0], TAB_FONT[1], "bold"))
+            canvas.grid(row=0, column=i, padx=3)
+            canvas.bind("<Button-1>", lambda e, idx=i: self._switch_set(idx))
+            canvas.bind("<Double-Button-1>", lambda e, idx=i: self._rename_set(idx))
+            canvas.bind("<Button-3>", lambda e, idx=i: self._delete_set(idx))
+            self.set_buttons.append(canvas)
 
     def _add_set(self):
         n = len(self.data["sets"]) + 1
@@ -444,7 +496,7 @@ class ColorPaletteApp(tk.Tk):
     def _switch_set(self, idx):
         self.data["current_set"] = idx
         save_data(self.data)
-        self._refresh_set_buttons()
+        self._rebuild_set_buttons()
         self._refresh_swatches()
 
     def _rename_set(self, idx):
@@ -455,7 +507,7 @@ class ColorPaletteApp(tk.Tk):
         if new_name:
             self.data["set_names"][idx] = new_name.strip()[:12]
             save_data(self.data)
-            self._refresh_set_buttons()
+            self._rebuild_set_buttons()
 
     # ---------- 색상 표시 ----------
 
@@ -495,7 +547,7 @@ class ColorPaletteApp(tk.Tk):
     # ---------- 클립보드 ----------
 
     def _css_gradient(self, slot_data):
-        return f"linear-gradient(90deg, {slot_data['start']}, {slot_data['end']})"
+        return f"linear-gradient(0deg, {slot_data['start']}, {slot_data['end']})"
 
     def _copy_to_clipboard(self, text):
         ok = False
@@ -595,10 +647,10 @@ class ColorPaletteApp(tk.Tk):
     # ---------- 그라데이션 지정 ----------
 
     def _pick_gradient_palette(self, slot):
-        _, start_hex = colorchooser.askcolor(title="그라데이션 - ① 시작 색상 선택")
+        _, start_hex = colorchooser.askcolor(title="그라데이션 - ① 아래쪽(시작) 색상 선택")
         if not start_hex:
             return
-        _, end_hex = colorchooser.askcolor(title="그라데이션 - ② 끝 색상 선택")
+        _, end_hex = colorchooser.askcolor(title="그라데이션 - ② 위쪽(끝) 색상 선택")
         if not end_hex:
             return
         self._set_slot_gradient(slot, start_hex, end_hex)
@@ -615,7 +667,7 @@ class ColorPaletteApp(tk.Tk):
             self.deiconify()
 
         EyedropperOverlay(self, on_pick_start, on_cancel,
-                           prompt_text="① 시작 색상을 클릭하세요  (ESC: 취소)")
+                           prompt_text="① 아래쪽(시작) 색상을 클릭하세요  (ESC: 취소)")
 
     def _launch_gradient_end_overlay(self, slot, start_hex):
         def on_pick_end(end_hex):
@@ -626,7 +678,7 @@ class ColorPaletteApp(tk.Tk):
             self.deiconify()
 
         EyedropperOverlay(self, on_pick_end, on_cancel,
-                           prompt_text="② 끝 색상을 클릭하세요  (ESC: 취소)")
+                           prompt_text="② 위쪽(끝) 색상을 클릭하세요  (ESC: 취소)")
 
     def _set_slot_gradient(self, slot, start_hex, end_hex):
         start_hex, end_hex = start_hex.lower(), end_hex.lower()
