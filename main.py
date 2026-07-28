@@ -371,8 +371,10 @@ class ColorPaletteApp(tk.Tk):
         mid.pack(padx=16, pady=4)
 
         for slot in range(SLOT_COUNT):
-            frame = tk.Frame(mid, bg="#1e1e1e")
+            frame = tk.Frame(mid, bg="#1e1e1e", width=SWATCH_SIZE, height=SWATCH_SIZE + 34)
             frame.grid(row=0, column=slot, padx=8)
+            frame.grid_propagate(False)
+            frame.pack_propagate(False)
 
             canvas = tk.Canvas(
                 frame, width=SWATCH_SIZE, height=SWATCH_SIZE,
@@ -383,7 +385,8 @@ class ColorPaletteApp(tk.Tk):
             canvas.bind("<Button-1>", lambda e, s=slot: self._on_swatch_click(s))
             canvas.bind("<Button-3>", lambda e, s=slot: self._show_context_menu(e, s))
 
-            label = tk.Label(frame, text="비어있음", bg="#1e1e1e", fg="#cccccc", font=("Consolas", 9))
+            label = tk.Label(frame, text="비어있음", bg="#1e1e1e", fg="#cccccc",
+                              font=("Consolas", 8), wraplength=SWATCH_SIZE, justify="center")
             label.pack(pady=(4, 0))
 
             self.swatch_widgets.append((frame, canvas, label))
@@ -440,31 +443,42 @@ class ColorPaletteApp(tk.Tk):
 
     # ---------- 세트 관리 ----------
 
+    def _draw_tab(self, canvas, idx):
+        """탭 캔버스에 알약 배경 + 텍스트를 (다시) 그림. 위젯 자체는 재사용."""
+        canvas.delete("all")
+        text = self.data["set_names"][idx]
+        selected = (idx == self.data["current_set"])
+        fill = "#111111" if selected else "#ffffff"
+        text_color = "#ffffff" if selected else "#111111"
+        outline = "" if selected else "#cccccc"
+        w = int(canvas["width"])
+        draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
+        canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
+                            font=(TAB_FONT[0], TAB_FONT[1], "bold"))
+
     def _rebuild_set_buttons(self):
+        """세트 개수/이름이 바뀌었을 때만 호출 (위젯을 새로 만듦)"""
         for w in self.set_scroll_frame.winfo_children():
             w.destroy()
         self.set_buttons = []
         font = tkfont.Font(family=TAB_FONT[0], size=TAB_FONT[1], weight="bold")
-        current = self.data["current_set"]
 
         for i in range(len(self.data["sets"])):
             text = self.data["set_names"][i]
-            selected = (i == current)
-            fill = "#111111" if selected else "#ffffff"
-            text_color = "#ffffff" if selected else "#111111"
-            outline = "" if selected else "#cccccc"
-
             w = font.measure(text) + TAB_PADX * 2
             canvas = tk.Canvas(self.set_scroll_frame, width=w, height=TAB_HEIGHT,
                                 bg="#1e1e1e", highlightthickness=0)
-            draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
-            canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
-                                font=(TAB_FONT[0], TAB_FONT[1], "bold"))
             canvas.grid(row=0, column=i, padx=3)
             canvas.bind("<Button-1>", lambda e, idx=i: self._switch_set(idx))
             canvas.bind("<Double-Button-1>", lambda e, idx=i: self._rename_set(idx))
             canvas.bind("<Button-3>", lambda e, idx=i: self._delete_set(idx))
             self.set_buttons.append(canvas)
+            self._draw_tab(canvas, i)
+
+    def _refresh_tab_colors(self):
+        """세트 개수는 그대로, 선택 상태(색상)만 다시 칠함 (위젯은 유지 → 더블클릭 인식 유지)"""
+        for i, canvas in enumerate(self.set_buttons):
+            self._draw_tab(canvas, i)
 
     def _add_set(self):
         n = len(self.data["sets"]) + 1
@@ -496,7 +510,7 @@ class ColorPaletteApp(tk.Tk):
     def _switch_set(self, idx):
         self.data["current_set"] = idx
         save_data(self.data)
-        self._rebuild_set_buttons()
+        self._refresh_tab_colors()
         self._refresh_swatches()
 
     def _rename_set(self, idx):
