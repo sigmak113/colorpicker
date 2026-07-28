@@ -18,10 +18,12 @@ jobs:
           python-version: 3.11
 
       - name: 필요 라이브러리 설치
+        shell: cmd
         run: pip install -r requirements.txt
 
       - name: exe 빌드
-        run: pyinstaller --onefile --noconsole --name ColorPaletteManager --add-data=assets;assets main.py
+        shell: cmd
+        run: pyinstaller --onefile --noconsole --name ColorPaletteManager --add-data "assets;assets" main.py
 
       - name: exe 업로드 (다운로드 가능하게)
         uses: actions/upload-artifact@v4
