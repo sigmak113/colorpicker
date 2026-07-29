@@ -383,6 +383,24 @@ class ColorPaletteApp(tk.Tk):
         except Exception as e:
             safe_log("아이콘(png) 설정 실패:", e)
 
+    def _draw_pin(self):
+        """항상 위에 고정 버튼 그리기 (켜짐: 파란 원, 꺼짐: 회색 원)"""
+        self.pin_canvas.delete("all")
+        active = bool(self.attributes("-topmost"))
+        fill = "#3a7bd5" if active else "#3a3a3a"
+        text_color = "#ffffff" if active else "#cccccc"
+        self.pin_canvas.create_oval(1, 1, TAB_HEIGHT - 1, TAB_HEIGHT - 1, fill=fill, outline="")
+        self.pin_canvas.create_text(TAB_HEIGHT / 2, TAB_HEIGHT / 2, text="TOP",
+                                     fill=text_color, font=("맑은 고딕", 7, "bold"))
+
+    def _toggle_always_on_top(self):
+        current = bool(self.attributes("-topmost"))
+        self.attributes("-topmost", not current)
+        self._draw_pin()
+        self.status_label.config(
+            text="항상 위에 고정: 켜짐 (다른 창 위에 계속 표시됩니다)" if not current else "항상 위에 고정: 꺼짐"
+        )
+
     # ---------- UI 구성 ----------
 
     def _build_ui(self):
@@ -402,6 +420,12 @@ class ColorPaletteApp(tk.Tk):
 
         self._make_pill_button(set_area, "+ 세트 추가", self._add_set,
                                 fill="#3a7bd5", text_color="#ffffff").pack(side="left")
+
+        self.pin_canvas = tk.Canvas(set_area, width=TAB_HEIGHT, height=TAB_HEIGHT,
+                                     bg="#1e1e1e", highlightthickness=0, cursor="hand2")
+        self.pin_canvas.pack(side="left", padx=(6, 0))
+        self.pin_canvas.bind("<Button-1>", lambda e: self._toggle_always_on_top())
+        self._draw_pin()
 
         self.set_scroll_frame = tk.Frame(self.set_canvas, bg="#1e1e1e")
         self.set_canvas.create_window((0, 0), window=self.set_scroll_frame, anchor="nw")
@@ -650,33 +674,38 @@ class ColorPaletteApp(tk.Tk):
         current_set = self.data["sets"][self.data["current_set"]]
         slot_data = current_set[slot]
 
+        def deferred(fn):
+            """메뉴의 grab이 완전히 풀린 뒤에 실행되도록 지연 -> 다이얼로그와의 grab 충돌(멈춤) 방지"""
+            return lambda: self.after(80, fn)
+
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="🎨 단색 - 팔레트에서 선택", command=lambda: self._pick_solid_palette(slot))
-        menu.add_command(label="💧 단색 - 화면에서 추출", command=lambda: self._pick_solid_screen(slot))
+        menu.add_command(label="🎨 단색 - 팔레트에서 선택", command=deferred(lambda: self._pick_solid_palette(slot)))
+        menu.add_command(label="💧 단색 - 화면에서 추출", command=deferred(lambda: self._pick_solid_screen(slot)))
         menu.add_separator()
-        menu.add_command(label="🌈 그라데이션 만들기 (팔레트)", command=lambda: self._pick_gradient_palette(slot))
-        menu.add_command(label="🌈 그라데이션 만들기 (스포이드)", command=lambda: self._pick_gradient_screen(slot))
+        menu.add_command(label="🌈 그라데이션 만들기 (팔레트)", command=deferred(lambda: self._pick_gradient_palette(slot)))
+        menu.add_command(label="🌈 그라데이션 만들기 (스포이드)", command=deferred(lambda: self._pick_gradient_screen(slot)))
 
         if slot_data:
             menu.add_separator()
             if slot_data["type"] == "solid":
                 menu.add_command(label="📋 색상 코드 복사 (#없이)",
-                                  command=lambda: self._copy_hex(slot_data["color"]))
+                                  command=deferred(lambda: self._copy_hex(slot_data["color"])))
             else:
                 menu.add_command(label="📋 시작색만 복사 (#없이)",
-                                  command=lambda: self._copy_hex(slot_data["start"]))
+                                  command=deferred(lambda: self._copy_hex(slot_data["start"])))
                 menu.add_command(label="📋 끝색만 복사 (#없이)",
-                                  command=lambda: self._copy_hex(slot_data["end"]))
+                                  command=deferred(lambda: self._copy_hex(slot_data["end"])))
                 menu.add_command(label="📋 CSS 코드 복사",
-                                  command=lambda: self._copy_to_clipboard(self._css_gradient(slot_data)))
-            menu.add_command(label="👁 미리보기에 보기", command=lambda: self._update_preview(slot_data))
+                                  command=deferred(lambda: self._copy_to_clipboard(self._css_gradient(slot_data))))
+            menu.add_command(label="👁 미리보기에 보기", command=deferred(lambda: self._update_preview(slot_data)))
             menu.add_separator()
-            menu.add_command(label="🗑 비우기", command=lambda: self._clear_slot(slot))
+            menu.add_command(label="🗑 비우기", command=deferred(lambda: self._clear_slot(slot)))
 
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+            menu.destroy()
 
     # ---------- 단색 지정 ----------
 
