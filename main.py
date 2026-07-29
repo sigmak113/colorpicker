@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-컬러 팔레트 매니저
+컬러 팔레트 매니저 - Sigma.K
 - 무제한 세트, 세트당 5개 색상 슬롯 (단색 또는 그라데이션)
 - 클릭 시 색상 코드(# 제외) 클립보드 자동 복사 (프리미어 프로 Lumetri 색상창 등에 붙여넣기)
-- 색상 지정: 팔레트에서 선택 / 화면에서 스포이드로 추출
+- 색상 지정: 포토샵 스타일 커스텀 선택창 / 화면에서 스포이드로 추출
 - 하단 미리보기: 흰 배경 / 검정 배경에 자막용 텍스트로 색상·그라데이션 미리보기 (Paperlogy 8ExtraBold)
-- colors_data.json 파일에 자동 저장 (exe와 같은 폴더)
+- colors_data.json 파일에 자동 저장 (쓰기 권한 없으면 AppData로 자동 대체)
 """
 
 import sys
@@ -26,15 +26,36 @@ try:
 except ImportError:
     Image = ImageGrab = ImageTk = ImageDraw = ImageFont = None
 
+# ---------- 상수 ----------
+
 SLOT_COUNT = 5
-SWATCH_SIZE = 70
-MAGNIFIER_ZOOM = 8          # 스포이드 확대 배율
-MAGNIFIER_GRID_PX = 11      # 확대해서 보여줄 원본 픽셀 범위 (11x11)
+SWATCH_SIZE = 78
+CARD_PAD = 7          # 흰 카드 안에서 색상 사각형까지의 여백
+CARD_RADIUS = 16       # 카드(흰 배경) 모서리 둥글기
+COLOR_RADIUS = 11      # 색상 사각형 모서리 둥글기
+MAGNIFIER_ZOOM = 8
+MAGNIFIER_GRID_PX = 11
 
 TAB_HEIGHT = 32
 TAB_RADIUS = 16
 TAB_PADX = 16
 TAB_FONT = ("맑은 고딕", 10, "bold")
+
+# 라이트 테마 색상
+BG = "#f2f2f5"           # 페이지 배경
+CARD_BG = "#ffffff"      # 카드/스와치 배경
+BORDER = "#e2e2e8"       # 카드 테두리
+TEXT_DARK = "#222222"
+TEXT_MUTED = "#8a8a92"
+TEXT_FAINT = "#c3c3ca"
+ACCENT = "#3a7bd5"
+TAB_SELECTED_BG = "#1a1a1e"
+STATUS_GREEN = "#2fae4e"
+
+PREVIEW_TEXT = "자막 미리보기"
+PREVIEW_W = 204
+PREVIEW_H = 62
+PREVIEW_FONT_SIZE = 24
 
 
 def draw_rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
@@ -55,11 +76,6 @@ def draw_rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
     ]
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
-PREVIEW_TEXT = "자막 미리보기"
-PREVIEW_W = 204
-PREVIEW_H = 62
-PREVIEW_FONT_SIZE = 24
-
 
 def safe_log(*args):
     """--noconsole exe에서는 sys.stdout이 None이라 print()가 예외를 던지고
@@ -78,7 +94,7 @@ def get_base_path():
 
 
 def get_asset_path(*parts):
-    """PyInstaller onefile 빌드에서도 번들된 자산(폰트 등)을 찾을 수 있는 경로 반환"""
+    """PyInstaller onefile 빌드에서도 번들된 자산(폰트/아이콘 등)을 찾을 수 있는 경로 반환"""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         base = sys._MEIPASS
     else:
@@ -109,6 +125,24 @@ def get_data_file_path():
 
 DATA_FILE = get_data_file_path()
 FONT_PATH = get_asset_path("assets", "fonts", "Paperlogy-8ExtraBold.ttf")
+
+
+def apply_window_icon(window):
+    """스포이드 모양 아이콘 적용 (ico 우선, 실패 시 png로 대체). 모든 창(메인+다이얼로그)에 적용."""
+    try:
+        ico_path = get_asset_path("assets", "icon", "icon.ico")
+        if os.path.exists(ico_path):
+            window.iconbitmap(ico_path)
+            return
+    except Exception as e:
+        safe_log("아이콘(ico) 설정 실패:", e)
+    try:
+        png_path = get_asset_path("assets", "icon", "icon_32.png")
+        if os.path.exists(png_path):
+            window._icon_photo_ref = tk.PhotoImage(file=png_path)  # 참조 유지 필요
+            window.iconphoto(True, window._icon_photo_ref)
+    except Exception as e:
+        safe_log("아이콘(png) 설정 실패:", e)
 
 
 def default_data():
@@ -199,6 +233,28 @@ def make_gradient_image(start_hex, end_hex, w, h):
         b = int(eb + (sb - eb) * t)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
     return img
+
+
+def make_rounded_image(fill_img, w, h, radius):
+    """이미지를 둥근 사각형 마스크로 잘라 RGBA로 반환"""
+    if fill_img.mode != "RGBA":
+        fill_img = fill_img.convert("RGBA")
+    mask = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(mask)
+    d.rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(fill_img, (0, 0), mask)
+    return out
+
+
+def make_rounded_solid_image(hex_color, w, h, radius):
+    solid = Image.new("RGB", (w, h), hex_to_rgb(hex_color))
+    return make_rounded_image(solid, w, h, radius)
+
+
+def make_rounded_gradient_image(start_hex, end_hex, w, h, radius):
+    grad = make_gradient_image(start_hex, end_hex, w, h)
+    return make_rounded_image(grad, w, h, radius)
 
 
 _preview_font_cache = {}
@@ -358,7 +414,7 @@ PICKER_HUE_GAP = 14
 
 class PhotoshopColorPicker(tk.Toplevel):
     """포토샵 스타일 색상 선택창 (SV 사각형 + 색상 슬라이더 + 숫자 입력).
-    result 속성에 선택한 hex(취소 시 None)가 담김 - colorchooser.askcolor 대체용."""
+    result 속성에 선택한 hex(취소 시 None)가 담김."""
 
     def __init__(self, master, initial_hex="#ffffff", title_text="색상 선택"):
         super().__init__(master)
@@ -368,11 +424,11 @@ class PhotoshopColorPicker(tk.Toplevel):
         self.result = None
         self._updating = False
 
+        apply_window_icon(self)
         self.transient(master)
 
         r, g, b = hex_to_rgb(initial_hex)
         self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-        self.original_hex = initial_hex.lower()
 
         self._build_ui()
         self._redraw_hue_bar()
@@ -410,39 +466,32 @@ class PhotoshopColorPicker(tk.Toplevel):
 
         tk.Label(right, text="미리보기", bg="#2b2b2b", fg="#aaaaaa", font=("맑은 고딕", 8)) \
             .grid(row=0, column=0, columnspan=2, sticky="w")
-        self.new_swatch = tk.Canvas(right, width=110, height=36, highlightthickness=1, highlightbackground="#555")
-        self.new_swatch.grid(row=1, column=0, columnspan=2, pady=(2, 0))
-        self.cur_swatch = tk.Canvas(right, width=110, height=36, highlightthickness=1,
-                                     highlightbackground="#555", cursor="hand2")
-        self.cur_swatch.grid(row=2, column=0, columnspan=2)
-        self.cur_swatch.bind("<Button-1>", lambda e: self._reset_to_original())
-        self.cur_swatch.create_rectangle(0, 0, 110, 36, fill=self.original_hex, outline="")
-        tk.Label(right, text="(클릭: 원래 색으로)", bg="#2b2b2b", fg="#777777", font=("맑은 고딕", 7)) \
-            .grid(row=3, column=0, columnspan=2, sticky="w")
+        self.new_swatch = tk.Canvas(right, width=110, height=44, highlightthickness=1, highlightbackground="#555")
+        self.new_swatch.grid(row=1, column=0, columnspan=2, pady=(2, 10))
 
         self.entries = {}
         for i, name in enumerate(["H", "S", "V"]):
             tk.Label(right, text=name, bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
-                .grid(row=4 + i, column=0, sticky="w", pady=2)
+                .grid(row=2 + i, column=0, sticky="w", pady=2)
             e = tk.Entry(right, width=6, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
-            e.grid(row=4 + i, column=1, sticky="w")
+            e.grid(row=2 + i, column=1, sticky="w")
             e.bind("<Return>", self._on_hsv_entry_change)
             e.bind("<FocusOut>", self._on_hsv_entry_change)
             self.entries[name] = e
 
         for i, name in enumerate(["R", "G", "B"]):
             tk.Label(right, text=name, bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
-                .grid(row=7 + i, column=0, sticky="w", pady=2)
+                .grid(row=5 + i, column=0, sticky="w", pady=2)
             e = tk.Entry(right, width=6, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
-            e.grid(row=7 + i, column=1, sticky="w")
+            e.grid(row=5 + i, column=1, sticky="w")
             e.bind("<Return>", self._on_rgb_entry_change)
             e.bind("<FocusOut>", self._on_rgb_entry_change)
             self.entries[name] = e
 
         tk.Label(right, text="#", bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
-            .grid(row=10, column=0, sticky="w", pady=(8, 2))
+            .grid(row=8, column=0, sticky="w", pady=(8, 2))
         self.hex_entry = tk.Entry(right, width=10, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
-        self.hex_entry.grid(row=10, column=1, sticky="w", pady=(8, 2))
+        self.hex_entry.grid(row=8, column=1, sticky="w", pady=(8, 2))
         self.hex_entry.bind("<Return>", self._on_hex_entry_change)
         self.hex_entry.bind("<FocusOut>", self._on_hex_entry_change)
 
@@ -561,15 +610,8 @@ class PhotoshopColorPicker(tk.Toplevel):
         if not skip_hex:
             self.hex_entry.delete(0, "end"); self.hex_entry.insert(0, hexcode.lstrip("#"))
         self.new_swatch.delete("all")
-        self.new_swatch.create_rectangle(0, 0, 110, 36, fill=hexcode, outline="")
+        self.new_swatch.create_rectangle(0, 0, 110, 44, fill=hexcode, outline="")
         self._updating = False
-
-    def _reset_to_original(self):
-        r, g, b = hex_to_rgb(self.original_hex)
-        self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-        self._redraw_hue_bar()
-        self._redraw_sv_square()
-        self._sync_all_from_hsv()
 
     def _on_ok(self):
         self.result = self._current_hex()
@@ -594,6 +636,8 @@ class GradientPickerDialog(tk.Toplevel):
         self.result = None
         self.start_hex = initial_start
         self.end_hex = initial_end
+
+        apply_window_icon(self)
         self.transient(master)
 
         tk.Label(self, text="아래(시작)와 위(끝) 색상을 각각 클릭해서 지정하세요",
@@ -684,9 +728,9 @@ class ColorPaletteApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("컬러 팔레트 매니저 - Sigma.K")
-        self._set_window_icon()
+        apply_window_icon(self)
         self.resizable(False, False)
-        self.configure(bg="#1e1e1e")
+        self.configure(bg=BG)
 
         self.data = load_data()
         self.set_buttons = []
@@ -696,29 +740,17 @@ class ColorPaletteApp(tk.Tk):
         self._rebuild_set_buttons()
         self._refresh_swatches()
 
-    def _set_window_icon(self):
-        """스포이드 모양 아이콘 적용 (ico 우선, 실패 시 png로 대체)"""
-        try:
-            ico_path = get_asset_path("assets", "icon", "icon.ico")
-            if os.path.exists(ico_path):
-                self.iconbitmap(ico_path)
-                return
-        except Exception as e:
-            safe_log("아이콘(ico) 설정 실패:", e)
-        try:
-            png_path = get_asset_path("assets", "icon", "icon_32.png")
-            if os.path.exists(png_path):
-                self._icon_photo = tk.PhotoImage(file=png_path)  # 참조 유지 필요
-                self.iconphoto(True, self._icon_photo)
-        except Exception as e:
-            safe_log("아이콘(png) 설정 실패:", e)
+        # 첫 실행(혹은 처음 켰을 때) 미리보기가 비어있지 않도록 첫 슬롯 색상을 기본으로 보여줌
+        first_slot = self.data["sets"][self.data["current_set"]][0]
+        if first_slot:
+            self._update_preview(first_slot)
 
     def _draw_pin(self):
-        """항상 위에 고정 버튼 그리기 (켜짐: 파란 원, 꺼짐: 회색 원)"""
+        """항상 위에 고정 버튼 그리기 (켜짐: 파란 원, 꺼짐: 연회색 원)"""
         self.pin_canvas.delete("all")
         active = bool(self.attributes("-topmost"))
-        fill = "#3a7bd5" if active else "#3a3a3a"
-        text_color = "#ffffff" if active else "#cccccc"
+        fill = ACCENT if active else "#e4e4ea"
+        text_color = "#ffffff" if active else "#6c6c74"
         self.pin_canvas.create_oval(1, 1, TAB_HEIGHT - 1, TAB_HEIGHT - 1, fill=fill, outline="")
         self.pin_canvas.create_text(TAB_HEIGHT / 2, TAB_HEIGHT / 2, text="TOP",
                                      fill=text_color, font=("맑은 고딕", 7, "bold"))
@@ -731,33 +763,43 @@ class ColorPaletteApp(tk.Tk):
             text="항상 위에 고정: 켜짐 (다른 창 위에 계속 표시됩니다)" if not current else "항상 위에 고정: 꺼짐"
         )
 
+    def _scroll_sets(self, direction):
+        """세트 탭이 보이는 영역보다 좁으면(스크롤할 게 없으면) 아무 것도 하지 않음 -> 불필요한 위치 이동 방지"""
+        self.set_scroll_frame.update_idletasks()
+        content_w = self.set_scroll_frame.winfo_reqwidth()
+        canvas_w = self.set_canvas.winfo_width()
+        if content_w <= canvas_w:
+            self.set_canvas.xview_moveto(0)
+            return
+        self.set_canvas.xview_scroll(direction, "units")
+
     # ---------- UI 구성 ----------
 
     def _build_ui(self):
-        set_area = tk.Frame(self, bg="#1e1e1e", height=TAB_HEIGHT)
-        set_area.pack(padx=16, pady=(14, 6), fill="x")
+        set_area = tk.Frame(self, bg=BG, height=TAB_HEIGHT)
+        set_area.pack(padx=16, pady=(16, 6), fill="x")
         set_area.pack_propagate(False)
 
-        self._make_arrow_button(set_area, "◀", lambda: self.set_canvas.xview_scroll(-2, "units")) \
+        self._make_arrow_button(set_area, "◀", lambda: self._scroll_sets(-2)) \
             .pack(side="left", padx=(0, 4))
 
-        self.set_canvas = tk.Canvas(set_area, height=TAB_HEIGHT, bg="#1e1e1e",
+        self.set_canvas = tk.Canvas(set_area, height=TAB_HEIGHT, bg=BG,
                                      highlightthickness=0, width=250)
         self.set_canvas.pack(side="left", fill="x", expand=True)
 
-        self._make_arrow_button(set_area, "▶", lambda: self.set_canvas.xview_scroll(2, "units")) \
+        self._make_arrow_button(set_area, "▶", lambda: self._scroll_sets(2)) \
             .pack(side="left", padx=(4, 6))
 
         self._make_pill_button(set_area, "+ 세트 추가", self._add_set,
-                                fill="#3a7bd5", text_color="#ffffff").pack(side="left")
+                                fill=ACCENT, text_color="#ffffff").pack(side="left")
 
         self.pin_canvas = tk.Canvas(set_area, width=TAB_HEIGHT, height=TAB_HEIGHT,
-                                     bg="#1e1e1e", highlightthickness=0, cursor="hand2")
+                                     bg=BG, highlightthickness=0, cursor="hand2")
         self.pin_canvas.pack(side="left", padx=(6, 0))
         self.pin_canvas.bind("<Button-1>", lambda e: self._toggle_always_on_top())
         self._draw_pin()
 
-        self.set_scroll_frame = tk.Frame(self.set_canvas, bg="#1e1e1e")
+        self.set_scroll_frame = tk.Frame(self.set_canvas, bg=BG)
         self.set_canvas.create_window((0, 0), window=self.set_scroll_frame, anchor="nw")
         self.set_scroll_frame.bind(
             "<Configure>",
@@ -767,79 +809,69 @@ class ColorPaletteApp(tk.Tk):
         hint = tk.Label(
             self,
             text="세트 더블클릭: 이름 변경 · 세트 우클릭: 삭제  |  색상 좌클릭: 복사 · 색상 우클릭: 지정/그라데이션",
-            bg="#1e1e1e", fg="#9a9a9a", font=("맑은 고딕", 9)
+            bg=BG, fg=TEXT_MUTED, font=("맑은 고딕", 9)
         )
-        hint.pack(pady=(0, 10), padx=16)
+        hint.pack(pady=(0, 12), padx=16)
 
-        mid = tk.Frame(self, bg="#1e1e1e")
+        mid = tk.Frame(self, bg=BG)
         mid.pack(padx=16, pady=4)
 
         for slot in range(SLOT_COUNT):
-            frame = tk.Frame(mid, bg="#1e1e1e", width=SWATCH_SIZE, height=SWATCH_SIZE + 34)
+            frame = tk.Frame(mid, bg=BG, width=SWATCH_SIZE, height=SWATCH_SIZE + 38)
             frame.grid(row=0, column=slot, padx=8)
             frame.grid_propagate(False)
             frame.pack_propagate(False)
 
             canvas = tk.Canvas(
                 frame, width=SWATCH_SIZE, height=SWATCH_SIZE,
-                highlightthickness=1, highlightbackground="#555555", highlightcolor="#555555",
-                takefocus=0, cursor="hand2"
+                highlightthickness=0, bg=BG, takefocus=0, cursor="hand2"
             )
             canvas.pack()
             canvas.bind("<Button-1>", lambda e, s=slot: self._on_swatch_click(s))
             canvas.bind("<Button-3>", lambda e, s=slot: self._show_context_menu(e, s))
 
-            label = tk.Label(frame, text="비어있음", bg="#1e1e1e", fg="#cccccc",
+            label = tk.Label(frame, text="비어있음", bg=BG, fg=TEXT_MUTED,
                               font=("Consolas", 8), wraplength=SWATCH_SIZE, justify="center")
-            label.pack(pady=(4, 0))
+            label.pack(pady=(6, 0))
 
             self.swatch_widgets.append((frame, canvas, label))
 
         self.status_label = tk.Label(
             self, text="색상을 클릭하면 클립보드에 복사됩니다.",
-            bg="#1e1e1e", fg="#4caf50", font=("맑은 고딕", 10, "bold")
+            bg=BG, fg=STATUS_GREEN, font=("맑은 고딕", 10, "bold")
         )
-        self.status_label.pack(pady=(12, 8))
+        self.status_label.pack(pady=(14, 10))
 
         # ---- 미리보기 영역 (흰 배경 / 검정 배경) ----
-        preview_outer = tk.Frame(self, bg="#1e1e1e")
-        preview_outer.pack(padx=16, pady=(0, 16))
+        preview_outer = tk.Frame(self, bg=BG)
+        preview_outer.pack(padx=16, pady=(0, 18))
 
-        tk.Label(preview_outer, text="자막 미리보기 (Paperlogy 8ExtraBold)",
-                 bg="#1e1e1e", fg="#9a9a9a", font=("맑은 고딕", 9)).grid(row=0, column=0, columnspan=2, pady=(0, 4))
+        self.white_canvas = tk.Canvas(preview_outer, width=PREVIEW_W, height=PREVIEW_H,
+                                       highlightthickness=1, highlightbackground=BORDER)
+        self.white_canvas.grid(row=0, column=0, padx=4)
 
-        white_box = tk.Frame(preview_outer, bg="#1e1e1e")
-        white_box.grid(row=1, column=0, padx=4)
-        self.white_canvas = tk.Canvas(white_box, width=PREVIEW_W, height=PREVIEW_H,
-                                       highlightthickness=1, highlightbackground="#555555")
-        self.white_canvas.pack()
-        tk.Label(white_box, text="흰 배경", bg="#1e1e1e", fg="#777777", font=("맑은 고딕", 8)).pack(pady=(2, 0))
-
-        black_box = tk.Frame(preview_outer, bg="#1e1e1e")
-        black_box.grid(row=1, column=1, padx=4)
-        self.black_canvas = tk.Canvas(black_box, width=PREVIEW_W, height=PREVIEW_H,
-                                       highlightthickness=1, highlightbackground="#555555")
-        self.black_canvas.pack()
-        tk.Label(black_box, text="검정 배경", bg="#1e1e1e", fg="#777777", font=("맑은 고딕", 8)).pack(pady=(2, 0))
+        self.black_canvas = tk.Canvas(preview_outer, width=PREVIEW_W, height=PREVIEW_H,
+                                       highlightthickness=1, highlightbackground=BORDER)
+        self.black_canvas.grid(row=0, column=1, padx=4)
 
         self.white_canvas.create_rectangle(0, 0, PREVIEW_W, PREVIEW_H, fill="#ffffff", outline="")
         self.black_canvas.create_rectangle(0, 0, PREVIEW_W, PREVIEW_H, fill="#000000", outline="")
 
-    # ---------- 버튼 생성 헬퍼 (이미지2 스타일 알약형 UI) ----------
+    # ---------- 버튼 생성 헬퍼 ----------
 
     def _make_arrow_button(self, parent, text, command):
-        """화살표는 세트 탭과 구분되도록 원형 회색 버튼으로"""
+        """화살표는 세트 탭과 구분되도록 연회색 원형 버튼으로"""
         size = TAB_HEIGHT
-        canvas = tk.Canvas(parent, width=size, height=size, bg="#1e1e1e", highlightthickness=0)
-        canvas.create_oval(1, 1, size - 1, size - 1, fill="#3a3a3a", outline="")
-        canvas.create_text(size / 2, size / 2, text=text, fill="#cccccc", font=("맑은 고딕", 10, "bold"))
+        canvas = tk.Canvas(parent, width=size, height=size, bg=BG, highlightthickness=0, cursor="hand2")
+        canvas.create_oval(1, 1, size - 1, size - 1, fill="#e4e4ea", outline="")
+        canvas.create_text(size / 2, size / 2, text=text, fill="#6c6c74", font=("맑은 고딕", 10, "bold"))
         canvas.bind("<Button-1>", lambda e: command())
         return canvas
 
     def _make_pill_button(self, parent, text, command, fill, text_color, outline=""):
         font = tkfont.Font(family=TAB_FONT[0], size=TAB_FONT[1], weight="bold")
         w = font.measure(text) + TAB_PADX * 2
-        canvas = tk.Canvas(parent, width=w, height=TAB_HEIGHT, bg="#1e1e1e", highlightthickness=0)
+        canvas = tk.Canvas(parent, width=w, height=TAB_HEIGHT, bg=BG, highlightthickness=0, cursor="hand2")
         draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
         canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color, font=(TAB_FONT[0], TAB_FONT[1], "bold"))
         canvas.bind("<Button-1>", lambda e: command())
@@ -852,9 +884,9 @@ class ColorPaletteApp(tk.Tk):
         canvas.delete("all")
         text = self.data["set_names"][idx]
         selected = (idx == self.data["current_set"])
-        fill = "#111111" if selected else "#ffffff"
-        text_color = "#ffffff" if selected else "#111111"
-        outline = "" if selected else "#cccccc"
+        fill = TAB_SELECTED_BG if selected else CARD_BG
+        text_color = "#ffffff" if selected else TEXT_DARK
+        outline = "" if selected else BORDER
         w = int(canvas["width"])
         draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline=outline)
         canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
@@ -871,7 +903,7 @@ class ColorPaletteApp(tk.Tk):
             text = self.data["set_names"][i]
             w = font.measure(text) + TAB_PADX * 2
             canvas = tk.Canvas(self.set_scroll_frame, width=w, height=TAB_HEIGHT,
-                                bg="#1e1e1e", highlightthickness=0)
+                                bg=BG, highlightthickness=0, cursor="hand2")
             canvas.grid(row=0, column=i, padx=3)
             canvas.bind("<Button-1>", lambda e, idx=i: self._switch_set(idx))
             canvas.bind("<Double-Button-1>", lambda e, idx=i: self._rename_set(idx))
@@ -931,23 +963,28 @@ class ColorPaletteApp(tk.Tk):
 
     def _refresh_swatches(self):
         current_set = self.data["sets"][self.data["current_set"]]
+        inner = SWATCH_SIZE - 2 * CARD_PAD
         for slot, (frame, canvas, label) in enumerate(self.swatch_widgets):
             slot_data = current_set[slot]
             canvas.delete("all")
             canvas.image = None
+            draw_rounded_rect(canvas, 0, 0, SWATCH_SIZE - 1, SWATCH_SIZE - 1, CARD_RADIUS,
+                               fill=CARD_BG, outline=BORDER)
             if slot_data is None:
-                canvas.config(bg="#2b2b2b")
                 canvas.create_text(SWATCH_SIZE / 2, SWATCH_SIZE / 2, text="+",
-                                    fill="#777777", font=("맑은 고딕", 20))
+                                    fill=TEXT_FAINT, font=("맑은 고딕", 20))
                 label.config(text="비어있음")
             elif slot_data["type"] == "solid":
-                canvas.config(bg=slot_data["color"])
-                label.config(text=slot_data["color"].upper())
-            else:
-                img = make_gradient_image(slot_data["start"], slot_data["end"], SWATCH_SIZE, SWATCH_SIZE)
+                img = make_rounded_solid_image(slot_data["color"], inner, inner, COLOR_RADIUS)
                 photo = ImageTk.PhotoImage(img)
                 canvas.image = photo
-                canvas.create_image(0, 0, image=photo, anchor="nw")
+                canvas.create_image(CARD_PAD, CARD_PAD, image=photo, anchor="nw")
+                label.config(text=slot_data["color"].upper())
+            else:
+                img = make_rounded_gradient_image(slot_data["start"], slot_data["end"], inner, inner, COLOR_RADIUS)
+                photo = ImageTk.PhotoImage(img)
+                canvas.image = photo
+                canvas.create_image(CARD_PAD, CARD_PAD, image=photo, anchor="nw")
                 label.config(text=f"{slot_data['start'].upper()}\n{slot_data['end'].upper()}")
 
     def _update_preview(self, slot_data):
@@ -964,8 +1001,9 @@ class ColorPaletteApp(tk.Tk):
 
     # ---------- 클립보드 ----------
 
-    def _css_gradient(self, slot_data):
-        return f"linear-gradient(0deg, {slot_data['start']}, {slot_data['end']})"
+    def _gradient_code(self, slot_data):
+        """간결한 그라데이션 표기 (CSS 유효 문법이 아닌, 이 프로그램 전용의 짧은 표기)"""
+        return f"gradient({slot_data['start']}, {slot_data['end']})"
 
     def _copy_to_clipboard(self, text):
         ok = False
@@ -997,7 +1035,7 @@ class ColorPaletteApp(tk.Tk):
         if slot_data["type"] == "solid":
             self._copy_hex(slot_data["color"])
         else:
-            self._copy_to_clipboard(self._css_gradient(slot_data))
+            self._copy_to_clipboard(self._gradient_code(slot_data))
         self._update_preview(slot_data)
 
     def _show_context_menu(self, event, slot):
@@ -1025,8 +1063,8 @@ class ColorPaletteApp(tk.Tk):
                                   command=deferred(lambda: self._copy_hex(slot_data["start"])))
                 menu.add_command(label="📋 끝색만 복사 (#없이)",
                                   command=deferred(lambda: self._copy_hex(slot_data["end"])))
-                menu.add_command(label="📋 CSS 코드 복사",
-                                  command=deferred(lambda: self._copy_to_clipboard(self._css_gradient(slot_data))))
+                menu.add_command(label="📋 그라데이션 코드 복사",
+                                  command=deferred(lambda: self._copy_to_clipboard(self._gradient_code(slot_data))))
             menu.add_command(label="👁 미리보기에 보기", command=deferred(lambda: self._update_preview(slot_data)))
             menu.add_separator()
             menu.add_command(label="🗑 비우기", command=deferred(lambda: self._clear_slot(slot)))
@@ -1112,7 +1150,7 @@ class ColorPaletteApp(tk.Tk):
         self.data["sets"][self.data["current_set"]][slot] = slot_data
         save_data(self.data)
         self._refresh_swatches()
-        self._copy_to_clipboard(self._css_gradient(slot_data))
+        self._copy_to_clipboard(self._gradient_code(slot_data))
         self._update_preview(slot_data)
 
     # ---------- 슬롯 비우기 ----------
