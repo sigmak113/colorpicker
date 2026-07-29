@@ -769,7 +769,7 @@ class ColorPaletteApp(tk.Tk):
             text="세트 더블클릭: 이름 변경 · 세트 우클릭: 삭제  |  색상 좌클릭: 복사 · 색상 우클릭: 지정/그라데이션",
             bg="#1e1e1e", fg="#9a9a9a", font=("맑은 고딕", 9)
         )
-        hint.pack(pady=(0, 10))
+        hint.pack(pady=(0, 10), padx=16)
 
         mid = tk.Frame(self, bg="#1e1e1e")
         mid.pack(padx=16, pady=4)
@@ -948,7 +948,7 @@ class ColorPaletteApp(tk.Tk):
                 photo = ImageTk.PhotoImage(img)
                 canvas.image = photo
                 canvas.create_image(0, 0, image=photo, anchor="nw")
-                label.config(text=f"{slot_data['start'].upper()}→{slot_data['end'].upper()}")
+                label.config(text=f"{slot_data['start'].upper()}\n{slot_data['end'].upper()}")
 
     def _update_preview(self, slot_data):
         if not slot_data:
