@@ -41,18 +41,54 @@ TAB_RADIUS = 16
 TAB_PADX = 16
 TAB_FONT = ("맑은 고딕", 10, "bold")
 
-# 라이트 테마 색상
-BG = "#f2f2f5"           # 페이지 배경
-CARD_BG = "#ffffff"      # 카드/스와치 배경
-BORDER = "#e2e2e8"       # 카드 테두리
-TEXT_DARK = "#222222"
-TEXT_MUTED = "#8a8a92"
-TEXT_FAINT = "#c3c3ca"
-ACCENT = "#3a7bd5"
-TAB_SELECTED_BG = "#1a1a1e"      # 선택된 세트: 짙은 검정
-TAB_UNSELECTED_BG = "#dcdce2"    # 선택 안 된 세트: 배경보다 짙은 회색
-STATUS_GREEN = "#2fae4e"
+# 라이트/다크 테마
+LIGHT_THEME = {
+    "bg": "#f2f2f5", "card_bg": "#ffffff", "border": "#e2e2e8",
+    "text_dark": "#222222", "text_muted": "#8a8a92", "text_faint": "#c3c3ca",
+    "accent": "#3a7bd5",
+    "tab_selected_bg": "#1a1a1e", "tab_selected_text": "#ffffff",
+    "tab_unselected_bg": "#dcdce2", "tab_unselected_text": "#222222",
+    "status_green": "#2fae4e",
+}
+DARK_THEME = {
+    "bg": "#1c1c20", "card_bg": "#2a2a30", "border": "#3a3a42",
+    "text_dark": "#f0f0f2", "text_muted": "#9a9aa4", "text_faint": "#55555c",
+    "accent": "#5b9bf0",
+    "tab_selected_bg": "#f0f0f2", "tab_selected_text": "#1a1a1e",
+    "tab_unselected_bg": "#34343c", "tab_unselected_text": "#e4e4e8",
+    "status_green": "#4fcf6e",
+}
+THEME = dict(LIGHT_THEME)
+
+
+def T(key):
+    """현재 테마(라이트/다크)의 색상값을 가져옴"""
+    return THEME[key]
+
+
+CURRENT_THEME_NAME = "light"
+
+
+def set_theme(name):
+    """전역 THEME 딕셔너리 내용을 라이트/다크로 교체 (참조는 유지, 내용만 갱신)"""
+    global CURRENT_THEME_NAME
+    CURRENT_THEME_NAME = name if name in ("light", "dark") else "light"
+    THEME.clear()
+    THEME.update(DARK_THEME if CURRENT_THEME_NAME == "dark" else LIGHT_THEME)
+
+
+def make_flat_button(parent, text, command, bg, fg, w=92, h=34, radius=10, font=("맑은 고딕", 10, "bold")):
+    """색상 선택창 등에서 쓰는, 전체 디자인과 어울리는 둥근 버튼"""
+    parent_bg = parent["bg"] if "bg" in parent.keys() else "#2b2b2b"
+    canvas = tk.Canvas(parent, width=w, height=h, bg=parent_bg, highlightthickness=0, cursor="hand2")
+    draw_rounded_rect(canvas, 1, 1, w - 1, h - 1, radius, fill=bg, outline="")
+    canvas.create_text(w / 2, h / 2, text=text, fill=fg, font=font)
+    canvas.bind("<Button-1>", lambda e: command())
+    return canvas
+
+
 BUTTON_RADIUS = 10               # 화살표/추가/고정 버튼(둥근 네모)의 반경
+THEME_BTN_W = 48                 # 다크/라이트 전환 버튼 너비
 
 PREVIEW_TEXT = "자막 미리보기"
 PREVIEW_W = 204
@@ -154,6 +190,7 @@ def default_data():
         "current_set": 0,
         "set_names": ["가독성"],
         "sets": [[{"type": "solid", "color": c} for c in readability_colors]],
+        "theme": "light",
     }
 
 
@@ -195,7 +232,11 @@ def load_data():
             if not (0 <= current_set < len(migrated_sets)):
                 current_set = 0
 
-            return {"current_set": current_set, "set_names": set_names, "sets": migrated_sets}
+            theme = raw.get("theme", "light")
+            if theme not in ("light", "dark"):
+                theme = "light"
+
+            return {"current_set": current_set, "set_names": set_names, "sets": migrated_sets, "theme": theme}
         except Exception as e:
             safe_log("데이터 로드 실패, 기본값 사용:", e)
     return default_data()
@@ -223,16 +264,16 @@ def hex_to_rgb(hex_color):
 
 
 def make_gradient_image(start_hex, end_hex, w, h):
-    """아래(시작색) -> 위(끝색) 수직 그라데이션 이미지를 생성"""
+    """위(시작색) -> 아래(끝색) 수직 그라데이션 이미지를 생성"""
     sr, sg, sb = hex_to_rgb(start_hex)
     er, eg, eb = hex_to_rgb(end_hex)
     img = Image.new("RGB", (w, h))
     draw = ImageDraw.Draw(img)
     for y in range(h):
-        t = y / max(1, h - 1)  # y=0(맨 위)일 때 t=0(끝색), y=h-1(맨 아래)일 때 t=1(시작색)
-        r = int(er + (sr - er) * t)
-        g = int(eg + (sg - eg) * t)
-        b = int(eb + (sb - eb) * t)
+        t = y / max(1, h - 1)  # y=0(맨 위)일 때 t=0(시작색), y=h-1(맨 아래)일 때 t=1(끝색)
+        r = int(sr + (er - sr) * t)
+        g = int(sg + (eg - sg) * t)
+        b = int(sb + (eb - sb) * t)
         draw.line([(0, y), (w, y)], fill=(r, g, b))
     return img
 
@@ -499,8 +540,8 @@ class PhotoshopColorPicker(tk.Toplevel):
 
         btn_frame = tk.Frame(self, bg="#2b2b2b")
         btn_frame.pack(pady=(0, 14))
-        tk.Button(btn_frame, text="확인", width=10, command=self._on_ok, bg="#3a7bd5", fg="white").pack(side="left", padx=4)
-        tk.Button(btn_frame, text="취소", width=10, command=self._on_cancel).pack(side="left", padx=4)
+        make_flat_button(btn_frame, "확인", self._on_ok, bg="#3a7bd5", fg="#ffffff").pack(side="left", padx=4)
+        make_flat_button(btn_frame, "취소", self._on_cancel, bg="#3f3f46", fg="#e0e0e0").pack(side="left", padx=4)
 
     def _redraw_hue_bar(self):
         data = []
@@ -642,7 +683,7 @@ class GradientPickerDialog(tk.Toplevel):
         apply_window_icon(self)
         self.transient(master)
 
-        tk.Label(self, text="아래(시작)와 위(끝) 색상을 각각 클릭해서 지정하세요",
+        tk.Label(self, text="위(시작)와 아래(끝) 색상을 각각 클릭해서 지정하세요",
                  bg="#2b2b2b", fg="#aaaaaa", font=("맑은 고딕", 9)).pack(padx=16, pady=(14, 8))
 
         row = tk.Frame(self, bg="#2b2b2b")
@@ -650,7 +691,7 @@ class GradientPickerDialog(tk.Toplevel):
 
         start_box = tk.Frame(row, bg="#2b2b2b")
         start_box.grid(row=0, column=0, padx=8)
-        tk.Label(start_box, text="시작색 (아래)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
+        tk.Label(start_box, text="시작색 (위)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
         self.start_canvas = tk.Canvas(start_box, width=90, height=90,
                                        highlightthickness=0, cursor="hand2")
         self.start_canvas.pack(pady=4)
@@ -660,7 +701,7 @@ class GradientPickerDialog(tk.Toplevel):
 
         end_box = tk.Frame(row, bg="#2b2b2b")
         end_box.grid(row=0, column=2, padx=8)
-        tk.Label(end_box, text="끝색 (위)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
+        tk.Label(end_box, text="끝색 (아래)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
         self.end_canvas = tk.Canvas(end_box, width=90, height=90,
                                      highlightthickness=0, cursor="hand2")
         self.end_canvas.pack(pady=4)
@@ -672,8 +713,8 @@ class GradientPickerDialog(tk.Toplevel):
 
         btn_frame = tk.Frame(self, bg="#2b2b2b")
         btn_frame.pack(pady=14)
-        tk.Button(btn_frame, text="확인", width=10, command=self._on_ok, bg="#3a7bd5", fg="white").pack(side="left", padx=4)
-        tk.Button(btn_frame, text="취소", width=10, command=self._on_cancel).pack(side="left", padx=4)
+        make_flat_button(btn_frame, "확인", self._on_ok, bg="#3a7bd5", fg="#ffffff").pack(side="left", padx=4)
+        make_flat_button(btn_frame, "취소", self._on_cancel, bg="#3f3f46", fg="#e0e0e0").pack(side="left", padx=4)
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
         self._refresh()
@@ -704,13 +745,13 @@ class GradientPickerDialog(tk.Toplevel):
         self.preview_canvas.create_image(0, 0, image=self._preview_photo, anchor="nw")
 
     def _pick_start(self):
-        picker = PhotoshopColorPicker(self, initial_hex=self.start_hex, title_text="시작색(아래) 선택")
+        picker = PhotoshopColorPicker(self, initial_hex=self.start_hex, title_text="시작색(위) 선택")
         if picker.result:
             self.start_hex = picker.result
             self._refresh()
 
     def _pick_end(self):
-        picker = PhotoshopColorPicker(self, initial_hex=self.end_hex, title_text="끝색(위) 선택")
+        picker = PhotoshopColorPicker(self, initial_hex=self.end_hex, title_text="끝색(아래) 선택")
         if picker.result:
             self.end_hex = picker.result
             self._refresh()
@@ -729,12 +770,14 @@ class GradientPickerDialog(tk.Toplevel):
 class ColorPaletteApp(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.data = load_data()
+        set_theme(self.data.get("theme", "light"))
+
         self.title("컬러 팔레트 매니저 - Sigma.K")
         apply_window_icon(self)
         self.resizable(False, False)
-        self.configure(bg=BG)
+        self.configure(bg=T("bg"))
 
-        self.data = load_data()
         self.set_buttons = []
         self.swatch_widgets = []
 
@@ -747,18 +790,48 @@ class ColorPaletteApp(tk.Tk):
         if first_slot:
             self._update_preview(first_slot)
 
+    def _draw_theme_toggle(self):
+        """라이트/다크 모드 전환 버튼: 지금 모드가 아닌, 눌렀을 때 바뀔 모드를 표시"""
+        self.theme_canvas.delete("all")
+        draw_rounded_rect(self.theme_canvas, 1, 1, THEME_BTN_W - 1, TAB_HEIGHT - 1, BUTTON_RADIUS,
+                           fill=T("card_bg"), outline=T("border"))
+        label = "다크" if CURRENT_THEME_NAME == "light" else "라이트"
+        self.theme_canvas.create_text(THEME_BTN_W / 2, TAB_HEIGHT / 2, text=label,
+                                       fill=T("text_dark"), font=("맑은 고딕", 9, "bold"))
+
+    def _toggle_theme(self):
+        new_name = "dark" if CURRENT_THEME_NAME == "light" else "light"
+        set_theme(new_name)
+        self.data["theme"] = new_name
+        save_data(self.data)
+        self._rebuild_all_ui()
+
+    def _rebuild_all_ui(self):
+        """테마가 바뀌었을 때 화면 전체를 새 색상으로 다시 그림"""
+        for w in self.winfo_children():
+            w.destroy()
+        self.configure(bg=T("bg"))
+        self.set_buttons = []
+        self.swatch_widgets = []
+        self._build_ui()
+        self._rebuild_set_buttons()
+        self._refresh_swatches()
+        first_slot = self.data["sets"][self.data["current_set"]][0]
+        if first_slot:
+            self._update_preview(first_slot)
+
     def _draw_pin(self):
         """항상 위에 고정 버튼: 꺼짐(기본) - 흰 바탕 둥근 네모, 켜짐 - 짙은 검정(선택된 세트와 동일 톤)"""
         self.pin_canvas.delete("all")
         active = bool(self.attributes("-topmost"))
         if active:
             draw_rounded_rect(self.pin_canvas, 1, 1, TAB_HEIGHT - 1, TAB_HEIGHT - 1, BUTTON_RADIUS,
-                               fill=TAB_SELECTED_BG, outline="")
+                               fill=T("tab_selected_bg"), outline="")
             text_color = "#ffffff"
         else:
             draw_rounded_rect(self.pin_canvas, 1, 1, TAB_HEIGHT - 1, TAB_HEIGHT - 1, BUTTON_RADIUS,
-                               fill=CARD_BG, outline=BORDER)
-            text_color = TEXT_DARK
+                               fill=T("card_bg"), outline=T("border"))
+            text_color = T("text_dark")
         self.pin_canvas.create_text(TAB_HEIGHT / 2, TAB_HEIGHT / 2, text="TOP",
                                      fill=text_color, font=("맑은 고딕", 7, "bold"))
 
@@ -783,14 +856,14 @@ class ColorPaletteApp(tk.Tk):
     # ---------- UI 구성 ----------
 
     def _build_ui(self):
-        set_area = tk.Frame(self, bg=BG, height=TAB_HEIGHT)
+        set_area = tk.Frame(self, bg=T("bg"), height=TAB_HEIGHT)
         set_area.pack(padx=16, pady=(16, 6), fill="x")
         set_area.pack_propagate(False)
 
         self._make_arrow_button(set_area, "◀", lambda: self._scroll_sets(-2)) \
             .pack(side="left", padx=(0, 4))
 
-        self.set_canvas = tk.Canvas(set_area, height=TAB_HEIGHT, bg=BG,
+        self.set_canvas = tk.Canvas(set_area, height=TAB_HEIGHT, bg=T("bg"),
                                      highlightthickness=0, width=250)
         self.set_canvas.pack(side="left", fill="x", expand=True)
 
@@ -800,12 +873,18 @@ class ColorPaletteApp(tk.Tk):
         self._make_pill_button(set_area, "+ 세트 추가", self._add_set).pack(side="left")
 
         self.pin_canvas = tk.Canvas(set_area, width=TAB_HEIGHT, height=TAB_HEIGHT,
-                                     bg=BG, highlightthickness=0, cursor="hand2")
+                                     bg=T("bg"), highlightthickness=0, cursor="hand2")
         self.pin_canvas.pack(side="left", padx=(6, 0))
         self.pin_canvas.bind("<Button-1>", lambda e: self._toggle_always_on_top())
         self._draw_pin()
 
-        self.set_scroll_frame = tk.Frame(self.set_canvas, bg=BG)
+        self.theme_canvas = tk.Canvas(set_area, width=THEME_BTN_W, height=TAB_HEIGHT,
+                                       bg=T("bg"), highlightthickness=0, cursor="hand2")
+        self.theme_canvas.pack(side="left", padx=(6, 0))
+        self.theme_canvas.bind("<Button-1>", lambda e: self._toggle_theme())
+        self._draw_theme_toggle()
+
+        self.set_scroll_frame = tk.Frame(self.set_canvas, bg=T("bg"))
         self.set_canvas.create_window((0, 0), window=self.set_scroll_frame, anchor="nw")
         self.set_scroll_frame.bind(
             "<Configure>",
@@ -815,28 +894,28 @@ class ColorPaletteApp(tk.Tk):
         hint = tk.Label(
             self,
             text="세트 더블클릭: 이름 변경 · 세트 우클릭: 삭제  |  색상 좌클릭: 복사 · 색상 우클릭: 지정/그라데이션",
-            bg=BG, fg=TEXT_MUTED, font=("맑은 고딕", 9)
+            bg=T("bg"), fg=T("text_muted"), font=("맑은 고딕", 9)
         )
         hint.pack(pady=(0, 12), padx=16)
 
-        mid = tk.Frame(self, bg=BG)
+        mid = tk.Frame(self, bg=T("bg"))
         mid.pack(padx=16, pady=4)
 
         for slot in range(SLOT_COUNT):
-            frame = tk.Frame(mid, bg=BG, width=SWATCH_SIZE, height=SWATCH_SIZE + 38)
+            frame = tk.Frame(mid, bg=T("bg"), width=SWATCH_SIZE, height=SWATCH_SIZE + 38)
             frame.grid(row=0, column=slot, padx=8)
             frame.grid_propagate(False)
             frame.pack_propagate(False)
 
             canvas = tk.Canvas(
                 frame, width=SWATCH_SIZE, height=SWATCH_SIZE,
-                highlightthickness=0, bg=BG, takefocus=0, cursor="hand2"
+                highlightthickness=0, bg=T("bg"), takefocus=0, cursor="hand2"
             )
             canvas.pack()
             canvas.bind("<Button-1>", lambda e, s=slot: self._on_swatch_click(s))
             canvas.bind("<Button-3>", lambda e, s=slot: self._show_context_menu(e, s))
 
-            label = tk.Label(frame, text="비어있음", bg=BG, fg=TEXT_MUTED,
+            label = tk.Label(frame, text="비어있음", bg=T("bg"), fg=T("text_muted"),
                               font=("Consolas", 8), wraplength=SWATCH_SIZE, justify="center")
             label.pack(pady=(6, 0))
 
@@ -844,20 +923,20 @@ class ColorPaletteApp(tk.Tk):
 
         self.status_label = tk.Label(
             self, text="색상을 클릭하면 클립보드에 복사됩니다.",
-            bg=BG, fg=STATUS_GREEN, font=("맑은 고딕", 10, "bold")
+            bg=T("bg"), fg=T("status_green"), font=("맑은 고딕", 10, "bold")
         )
         self.status_label.pack(pady=(14, 10))
 
         # ---- 미리보기 영역 (흰 배경 / 검정 배경) ----
-        preview_outer = tk.Frame(self, bg=BG)
+        preview_outer = tk.Frame(self, bg=T("bg"))
         preview_outer.pack(padx=16, pady=(0, 18))
 
         self.white_canvas = tk.Canvas(preview_outer, width=PREVIEW_W, height=PREVIEW_H,
-                                       highlightthickness=1, highlightbackground=BORDER)
+                                       highlightthickness=1, highlightbackground=T("border"))
         self.white_canvas.grid(row=0, column=0, padx=4)
 
         self.black_canvas = tk.Canvas(preview_outer, width=PREVIEW_W, height=PREVIEW_H,
-                                       highlightthickness=1, highlightbackground=BORDER)
+                                       highlightthickness=1, highlightbackground=T("border"))
         self.black_canvas.grid(row=0, column=1, padx=4)
 
         self.white_canvas.create_rectangle(0, 0, PREVIEW_W, PREVIEW_H, fill="#ffffff", outline="")
@@ -868,17 +947,23 @@ class ColorPaletteApp(tk.Tk):
     def _make_arrow_button(self, parent, text, command):
         """화살표: 흰 바탕에 옅은 테두리를 가진 둥근 네모"""
         size = TAB_HEIGHT
-        canvas = tk.Canvas(parent, width=size, height=size, bg=BG, highlightthickness=0, cursor="hand2")
-        draw_rounded_rect(canvas, 1, 1, size - 1, size - 1, BUTTON_RADIUS, fill=CARD_BG, outline=BORDER)
-        canvas.create_text(size / 2, size / 2, text=text, fill=TEXT_DARK, font=("맑은 고딕", 10, "bold"))
+        canvas = tk.Canvas(parent, width=size, height=size, bg=T("bg"), highlightthickness=0, cursor="hand2")
+        draw_rounded_rect(canvas, 1, 1, size - 1, size - 1, BUTTON_RADIUS, fill=T("card_bg"), outline=T("border"))
+        canvas.create_text(size / 2, size / 2, text=text, fill=T("text_dark"), font=("맑은 고딕", 10, "bold"))
         canvas.bind("<Button-1>", lambda e: command())
         return canvas
 
-    def _make_pill_button(self, parent, text, command, fill=CARD_BG, text_color=TEXT_DARK, outline=BORDER):
+    def _make_pill_button(self, parent, text, command, fill=None, text_color=None, outline=None):
+        if fill is None:
+            fill = T("card_bg")
+        if text_color is None:
+            text_color = T("text_dark")
+        if outline is None:
+            outline = T("border")
         """+ 세트 추가 등: 흰 바탕에 옅은 테두리를 가진 둥근 네모(버튼)"""
         font = tkfont.Font(family=TAB_FONT[0], size=TAB_FONT[1], weight="bold")
         w = font.measure(text) + TAB_PADX * 2
-        canvas = tk.Canvas(parent, width=w, height=TAB_HEIGHT, bg=BG, highlightthickness=0, cursor="hand2")
+        canvas = tk.Canvas(parent, width=w, height=TAB_HEIGHT, bg=T("bg"), highlightthickness=0, cursor="hand2")
         draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, BUTTON_RADIUS, fill=fill, outline=outline)
         canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color, font=(TAB_FONT[0], TAB_FONT[1], "bold"))
         canvas.bind("<Button-1>", lambda e: command())
@@ -891,8 +976,8 @@ class ColorPaletteApp(tk.Tk):
         canvas.delete("all")
         text = self.data["set_names"][idx]
         selected = (idx == self.data["current_set"])
-        fill = TAB_SELECTED_BG if selected else TAB_UNSELECTED_BG
-        text_color = "#ffffff" if selected else TEXT_DARK
+        fill = T("tab_selected_bg") if selected else T("tab_unselected_bg")
+        text_color = "#ffffff" if selected else T("text_dark")
         w = int(canvas["width"])
         draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline="")
         canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
@@ -909,7 +994,7 @@ class ColorPaletteApp(tk.Tk):
             text = self.data["set_names"][i]
             w = font.measure(text) + TAB_PADX * 2
             canvas = tk.Canvas(self.set_scroll_frame, width=w, height=TAB_HEIGHT,
-                                bg=BG, highlightthickness=0, cursor="hand2")
+                                bg=T("bg"), highlightthickness=0, cursor="hand2")
             canvas.grid(row=0, column=i, padx=3)
             canvas.bind("<Button-1>", lambda e, idx=i: self._switch_set(idx))
             canvas.bind("<Double-Button-1>", lambda e, idx=i: self._rename_set(idx))
@@ -975,10 +1060,10 @@ class ColorPaletteApp(tk.Tk):
             canvas.delete("all")
             canvas.image = None
             draw_rounded_rect(canvas, 0, 0, SWATCH_SIZE - 1, SWATCH_SIZE - 1, CARD_RADIUS,
-                               fill=CARD_BG, outline=BORDER)
+                               fill=T("card_bg"), outline=T("border"))
             if slot_data is None:
                 canvas.create_text(SWATCH_SIZE / 2, SWATCH_SIZE / 2, text="+",
-                                    fill=TEXT_FAINT, font=("맑은 고딕", 20))
+                                    fill=T("text_faint"), font=("맑은 고딕", 20))
                 label.config(text="비어있음")
             elif slot_data["type"] == "solid":
                 img = make_rounded_solid_image(slot_data["color"], inner, inner, COLOR_RADIUS)
@@ -1137,7 +1222,7 @@ class ColorPaletteApp(tk.Tk):
             self.deiconify()
 
         EyedropperOverlay(self, on_pick_start, on_cancel,
-                           prompt_text="① 아래쪽(시작) 색상을 클릭하세요  (ESC: 취소)")
+                           prompt_text="① 위쪽(시작) 색상을 클릭하세요  (ESC: 취소)")
 
     def _launch_gradient_end_overlay(self, slot, start_hex):
         def on_pick_end(end_hex):
@@ -1148,7 +1233,7 @@ class ColorPaletteApp(tk.Tk):
             self.deiconify()
 
         EyedropperOverlay(self, on_pick_end, on_cancel,
-                           prompt_text="② 위쪽(끝) 색상을 클릭하세요  (ESC: 취소)")
+                           prompt_text="② 아래쪽(끝) 색상을 클릭하세요  (ESC: 취소)")
 
     def _set_slot_gradient(self, slot, start_hex, end_hex):
         start_hex, end_hex = start_hex.lower(), end_hex.lower()
