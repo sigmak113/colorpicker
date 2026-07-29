@@ -673,7 +673,10 @@ class ColorPaletteApp(tk.Tk):
             menu.add_separator()
             menu.add_command(label="🗑 비우기", command=lambda: self._clear_slot(slot))
 
-        menu.tk_popup(event.x_root, event.y_root)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     # ---------- 단색 지정 ----------
 
