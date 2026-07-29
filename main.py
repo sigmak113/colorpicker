@@ -353,7 +353,8 @@ class EyedropperOverlay(tk.Toplevel):
 class ColorPaletteApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("컬러 팔레트 매니저")
+        self.title("컬러 팔레트 매니저 - Sigma.K")
+        self._set_window_icon()
         self.resizable(False, False)
         self.configure(bg="#1e1e1e")
 
@@ -364,6 +365,23 @@ class ColorPaletteApp(tk.Tk):
         self._build_ui()
         self._rebuild_set_buttons()
         self._refresh_swatches()
+
+    def _set_window_icon(self):
+        """스포이드 모양 아이콘 적용 (ico 우선, 실패 시 png로 대체)"""
+        try:
+            ico_path = get_asset_path("assets", "icon", "icon.ico")
+            if os.path.exists(ico_path):
+                self.iconbitmap(ico_path)
+                return
+        except Exception as e:
+            safe_log("아이콘(ico) 설정 실패:", e)
+        try:
+            png_path = get_asset_path("assets", "icon", "icon_32.png")
+            if os.path.exists(png_path):
+                self._icon_photo = tk.PhotoImage(file=png_path)  # 참조 유지 필요
+                self.iconphoto(True, self._icon_photo)
+        except Exception as e:
+            safe_log("아이콘(png) 설정 실패:", e)
 
     # ---------- UI 구성 ----------
 
