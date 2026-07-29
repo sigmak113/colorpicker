@@ -60,6 +60,15 @@ PREVIEW_H = 62
 PREVIEW_FONT_SIZE = 24
 
 
+def safe_log(*args):
+    """--noconsole exe에서는 sys.stdout이 None이라 print()가 예외를 던지고
+    콜백 안에서 그 예외가 처리되며 응답없음처럼 보일 수 있음 -> 항상 안전하게 무시"""
+    try:
+        print(*args)
+    except Exception:
+        pass
+
+
 def get_base_path():
     """exe로 빌드됐을 때와 스크립트로 실행할 때 모두 올바른 폴더를 반환 (데이터 저장용)"""
     if getattr(sys, "frozen", False):
@@ -76,7 +85,28 @@ def get_asset_path(*parts):
     return os.path.join(base, *parts)
 
 
-DATA_FILE = os.path.join(get_base_path(), "colors_data.json")
+def get_data_file_path():
+    """exe가 있는 폴더에 저장 권한이 없으면(다운로드 폴더 정책, Program Files 등)
+    자동으로 사용자 AppData 폴더로 대체 -> '저장 실패' 반복으로 인한 멈춤 방지"""
+    base = get_base_path()
+    candidate = os.path.join(base, "colors_data.json")
+    try:
+        test_path = os.path.join(base, ".write_test_tmp")
+        with open(test_path, "w", encoding="utf-8") as f:
+            f.write("test")
+        os.remove(test_path)
+        return candidate
+    except Exception:
+        appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+        fallback_dir = os.path.join(appdata, "ColorPaletteManager")
+        try:
+            os.makedirs(fallback_dir, exist_ok=True)
+        except Exception:
+            pass
+        return os.path.join(fallback_dir, "colors_data.json")
+
+
+DATA_FILE = get_data_file_path()
 FONT_PATH = get_asset_path("assets", "fonts", "Paperlogy-8ExtraBold.ttf")
 
 
@@ -128,7 +158,7 @@ def load_data():
 
             return {"current_set": current_set, "set_names": set_names, "sets": migrated_sets}
         except Exception as e:
-            print("데이터 로드 실패, 기본값 사용:", e)
+            safe_log("데이터 로드 실패, 기본값 사용:", e)
     return default_data()
 
 
@@ -137,7 +167,7 @@ def save_data(data):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print("저장 실패:", e)
+        safe_log("저장 실패:", e)
 
 
 def readable_text_color(hex_color):
@@ -177,7 +207,7 @@ def load_preview_font(size):
     try:
         font = ImageFont.truetype(FONT_PATH, size)
     except Exception as e:
-        print("폰트 로드 실패, 기본 폰트로 대체:", e)
+        safe_log("폰트 로드 실패, 기본 폰트로 대체:", e)
         font = ImageFont.load_default()
     _preview_font_cache[size] = font
     return font
