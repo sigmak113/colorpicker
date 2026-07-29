@@ -11,9 +11,10 @@
 import sys
 import os
 import json
+import colorsys
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import colorchooser, simpledialog, messagebox
+from tkinter import simpledialog, messagebox
 
 try:
     import pyperclip
@@ -348,6 +349,335 @@ class EyedropperOverlay(tk.Toplevel):
         self.destroy()
         if not was_click and self.on_cancel:
             self.on_cancel()
+
+
+PICKER_SQ_SIZE = 200
+PICKER_HUE_W = 24
+PICKER_HUE_GAP = 14
+
+
+class PhotoshopColorPicker(tk.Toplevel):
+    """포토샵 스타일 색상 선택창 (SV 사각형 + 색상 슬라이더 + 숫자 입력).
+    result 속성에 선택한 hex(취소 시 None)가 담김 - colorchooser.askcolor 대체용."""
+
+    def __init__(self, master, initial_hex="#ffffff", title_text="색상 선택"):
+        super().__init__(master)
+        self.title(title_text)
+        self.resizable(False, False)
+        self.configure(bg="#2b2b2b")
+        self.result = None
+        self._updating = False
+
+        self.transient(master)
+
+        r, g, b = hex_to_rgb(initial_hex)
+        self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        self.original_hex = initial_hex.lower()
+
+        self._build_ui()
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
+
+        self.update_idletasks()
+        self.grab_set()
+        master.wait_window(self)
+
+    def _build_ui(self):
+        outer = tk.Frame(self, bg="#2b2b2b")
+        outer.pack(padx=14, pady=14)
+
+        left = tk.Frame(outer, bg="#2b2b2b")
+        left.grid(row=0, column=0, sticky="n")
+
+        self.sq_canvas = tk.Canvas(left, width=PICKER_SQ_SIZE, height=PICKER_SQ_SIZE,
+                                    highlightthickness=1, highlightbackground="#555", cursor="crosshair")
+        self.sq_canvas.grid(row=0, column=0)
+        self.sq_canvas.bind("<Button-1>", self._on_sq_click)
+        self.sq_canvas.bind("<B1-Motion>", self._on_sq_click)
+
+        self.hue_canvas = tk.Canvas(left, width=PICKER_HUE_W, height=PICKER_SQ_SIZE,
+                                     highlightthickness=1, highlightbackground="#555")
+        self.hue_canvas.grid(row=0, column=1, padx=(PICKER_HUE_GAP, 0))
+        self.hue_canvas.bind("<Button-1>", self._on_hue_click)
+        self.hue_canvas.bind("<B1-Motion>", self._on_hue_click)
+
+        right = tk.Frame(outer, bg="#2b2b2b")
+        right.grid(row=0, column=1, sticky="n", padx=(18, 0))
+
+        tk.Label(right, text="미리보기", bg="#2b2b2b", fg="#aaaaaa", font=("맑은 고딕", 8)) \
+            .grid(row=0, column=0, columnspan=2, sticky="w")
+        self.new_swatch = tk.Canvas(right, width=110, height=36, highlightthickness=1, highlightbackground="#555")
+        self.new_swatch.grid(row=1, column=0, columnspan=2, pady=(2, 0))
+        self.cur_swatch = tk.Canvas(right, width=110, height=36, highlightthickness=1,
+                                     highlightbackground="#555", cursor="hand2")
+        self.cur_swatch.grid(row=2, column=0, columnspan=2)
+        self.cur_swatch.bind("<Button-1>", lambda e: self._reset_to_original())
+        self.cur_swatch.create_rectangle(0, 0, 110, 36, fill=self.original_hex, outline="")
+        tk.Label(right, text="(클릭: 원래 색으로)", bg="#2b2b2b", fg="#777777", font=("맑은 고딕", 7)) \
+            .grid(row=3, column=0, columnspan=2, sticky="w")
+
+        self.entries = {}
+        for i, name in enumerate(["H", "S", "V"]):
+            tk.Label(right, text=name, bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
+                .grid(row=4 + i, column=0, sticky="w", pady=2)
+            e = tk.Entry(right, width=6, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
+            e.grid(row=4 + i, column=1, sticky="w")
+            e.bind("<Return>", self._on_hsv_entry_change)
+            e.bind("<FocusOut>", self._on_hsv_entry_change)
+            self.entries[name] = e
+
+        for i, name in enumerate(["R", "G", "B"]):
+            tk.Label(right, text=name, bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
+                .grid(row=7 + i, column=0, sticky="w", pady=2)
+            e = tk.Entry(right, width=6, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
+            e.grid(row=7 + i, column=1, sticky="w")
+            e.bind("<Return>", self._on_rgb_entry_change)
+            e.bind("<FocusOut>", self._on_rgb_entry_change)
+            self.entries[name] = e
+
+        tk.Label(right, text="#", bg="#2b2b2b", fg="#cccccc", font=("Consolas", 9)) \
+            .grid(row=10, column=0, sticky="w", pady=(8, 2))
+        self.hex_entry = tk.Entry(right, width=10, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff", relief="flat")
+        self.hex_entry.grid(row=10, column=1, sticky="w", pady=(8, 2))
+        self.hex_entry.bind("<Return>", self._on_hex_entry_change)
+        self.hex_entry.bind("<FocusOut>", self._on_hex_entry_change)
+
+        btn_frame = tk.Frame(self, bg="#2b2b2b")
+        btn_frame.pack(pady=(0, 14))
+        tk.Button(btn_frame, text="확인", width=10, command=self._on_ok, bg="#3a7bd5", fg="white").pack(side="left", padx=4)
+        tk.Button(btn_frame, text="취소", width=10, command=self._on_cancel).pack(side="left", padx=4)
+
+    def _redraw_hue_bar(self):
+        data = []
+        for y in range(PICKER_SQ_SIZE):
+            hue = y / (PICKER_SQ_SIZE - 1)
+            r, g, b = colorsys.hsv_to_rgb(hue, 1, 1)
+            data.extend([(int(r * 255), int(g * 255), int(b * 255))] * PICKER_HUE_W)
+        img = Image.new("RGB", (PICKER_HUE_W, PICKER_SQ_SIZE))
+        img.putdata(data)
+        self._hue_photo = ImageTk.PhotoImage(img)
+        self.hue_canvas.delete("all")
+        self.hue_canvas.create_image(0, 0, image=self._hue_photo, anchor="nw")
+        y = int(self.h * (PICKER_SQ_SIZE - 1))
+        self.hue_canvas.create_rectangle(0, y - 2, PICKER_HUE_W, y + 2, outline="white", width=2)
+
+    def _redraw_sv_square(self):
+        size = PICKER_SQ_SIZE
+        data = []
+        for y in range(size):
+            v = 1 - y / (size - 1)
+            for x in range(size):
+                s = x / (size - 1)
+                r, g, b = colorsys.hsv_to_rgb(self.h, s, v)
+                data.append((int(r * 255), int(g * 255), int(b * 255)))
+        img = Image.new("RGB", (size, size))
+        img.putdata(data)
+        self._sq_photo = ImageTk.PhotoImage(img)
+        self.sq_canvas.delete("all")
+        self.sq_canvas.create_image(0, 0, image=self._sq_photo, anchor="nw")
+        x = int(self.s * (size - 1))
+        y = int((1 - self.v) * (size - 1))
+        marker_color = "white" if self.v < 0.6 else "black"
+        self.sq_canvas.create_oval(x - 5, y - 5, x + 5, y + 5, outline=marker_color, width=2)
+
+    def _on_sq_click(self, event):
+        x = min(max(event.x, 0), PICKER_SQ_SIZE - 1)
+        y = min(max(event.y, 0), PICKER_SQ_SIZE - 1)
+        self.s = x / (PICKER_SQ_SIZE - 1)
+        self.v = 1 - y / (PICKER_SQ_SIZE - 1)
+        self._redraw_sv_square()
+        self._sync_all_from_hsv(skip_square=True)
+
+    def _on_hue_click(self, event):
+        y = min(max(event.y, 0), PICKER_SQ_SIZE - 1)
+        self.h = y / (PICKER_SQ_SIZE - 1)
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv(skip_square=True)
+
+    def _on_hsv_entry_change(self, event=None):
+        if self._updating:
+            return
+        try:
+            h = max(0, min(360, float(self.entries["H"].get()))) / 360
+            s = max(0, min(100, float(self.entries["S"].get()))) / 100
+            v = max(0, min(100, float(self.entries["V"].get()))) / 100
+        except ValueError:
+            return
+        self.h, self.s, self.v = h, s, v
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv(skip_hsv=True)
+
+    def _on_rgb_entry_change(self, event=None):
+        if self._updating:
+            return
+        try:
+            r = max(0, min(255, int(self.entries["R"].get())))
+            g = max(0, min(255, int(self.entries["G"].get())))
+            b = max(0, min(255, int(self.entries["B"].get())))
+        except ValueError:
+            return
+        self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv(skip_rgb=True)
+
+    def _on_hex_entry_change(self, event=None):
+        if self._updating:
+            return
+        text = self.hex_entry.get().strip().lstrip("#")
+        if len(text) != 6:
+            return
+        try:
+            r, g, b = hex_to_rgb("#" + text)
+        except ValueError:
+            return
+        self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv(skip_hex=True)
+
+    def _current_hex(self):
+        r, g, b = colorsys.hsv_to_rgb(self.h, self.s, self.v)
+        return "#%02x%02x%02x" % (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
+
+    def _sync_all_from_hsv(self, skip_square=False, skip_hsv=False, skip_rgb=False, skip_hex=False):
+        self._updating = True
+        hexcode = self._current_hex()
+        r, g, b = hex_to_rgb(hexcode)
+        if not skip_hsv:
+            self.entries["H"].delete(0, "end"); self.entries["H"].insert(0, str(round(self.h * 360)))
+            self.entries["S"].delete(0, "end"); self.entries["S"].insert(0, str(round(self.s * 100)))
+            self.entries["V"].delete(0, "end"); self.entries["V"].insert(0, str(round(self.v * 100)))
+        if not skip_rgb:
+            self.entries["R"].delete(0, "end"); self.entries["R"].insert(0, str(r))
+            self.entries["G"].delete(0, "end"); self.entries["G"].insert(0, str(g))
+            self.entries["B"].delete(0, "end"); self.entries["B"].insert(0, str(b))
+        if not skip_hex:
+            self.hex_entry.delete(0, "end"); self.hex_entry.insert(0, hexcode.lstrip("#"))
+        self.new_swatch.delete("all")
+        self.new_swatch.create_rectangle(0, 0, 110, 36, fill=hexcode, outline="")
+        self._updating = False
+
+    def _reset_to_original(self):
+        r, g, b = hex_to_rgb(self.original_hex)
+        self.h, self.s, self.v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        self._redraw_hue_bar()
+        self._redraw_sv_square()
+        self._sync_all_from_hsv()
+
+    def _on_ok(self):
+        self.result = self._current_hex()
+        self.grab_release()
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.grab_release()
+        self.destroy()
+
+
+class GradientPickerDialog(tk.Toplevel):
+    """시작색/끝색을 한 화면에서 명확하게 지정하는 그라데이션 선택창.
+    result 속성에 (start_hex, end_hex) 또는 취소 시 None."""
+
+    def __init__(self, master, initial_start="#ffffff", initial_end="#000000"):
+        super().__init__(master)
+        self.title("그라데이션 만들기")
+        self.resizable(False, False)
+        self.configure(bg="#2b2b2b")
+        self.result = None
+        self.start_hex = initial_start
+        self.end_hex = initial_end
+        self.transient(master)
+
+        tk.Label(self, text="아래(시작)와 위(끝) 색상을 각각 클릭해서 지정하세요",
+                 bg="#2b2b2b", fg="#aaaaaa", font=("맑은 고딕", 9)).pack(padx=16, pady=(14, 8))
+
+        row = tk.Frame(self, bg="#2b2b2b")
+        row.pack(padx=16)
+
+        start_box = tk.Frame(row, bg="#2b2b2b")
+        start_box.grid(row=0, column=0, padx=8)
+        tk.Label(start_box, text="시작색 (아래)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
+        self.start_canvas = tk.Canvas(start_box, width=90, height=90,
+                                       highlightthickness=1, highlightbackground="#555", cursor="hand2")
+        self.start_canvas.pack(pady=4)
+        self.start_canvas.bind("<Button-1>", lambda e: self._pick_start())
+
+        tk.Label(row, text="→", bg="#2b2b2b", fg="#666666", font=("맑은 고딕", 16)).grid(row=0, column=1)
+
+        end_box = tk.Frame(row, bg="#2b2b2b")
+        end_box.grid(row=0, column=2, padx=8)
+        tk.Label(end_box, text="끝색 (위)", bg="#2b2b2b", fg="#cccccc", font=("맑은 고딕", 8)).pack()
+        self.end_canvas = tk.Canvas(end_box, width=90, height=90,
+                                     highlightthickness=1, highlightbackground="#555", cursor="hand2")
+        self.end_canvas.pack(pady=4)
+        self.end_canvas.bind("<Button-1>", lambda e: self._pick_end())
+
+        tk.Label(self, text="미리보기", bg="#2b2b2b", fg="#aaaaaa", font=("맑은 고딕", 8)).pack(pady=(10, 2))
+        self.preview_canvas = tk.Canvas(self, width=280, height=40, highlightthickness=1, highlightbackground="#555")
+        self.preview_canvas.pack(padx=16)
+
+        btn_frame = tk.Frame(self, bg="#2b2b2b")
+        btn_frame.pack(pady=14)
+        tk.Button(btn_frame, text="확인", width=10, command=self._on_ok, bg="#3a7bd5", fg="white").pack(side="left", padx=4)
+        tk.Button(btn_frame, text="취소", width=10, command=self._on_cancel).pack(side="left", padx=4)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self._refresh()
+
+        self.update_idletasks()
+        self.grab_set()
+        master.wait_window(self)
+
+    def _refresh(self):
+        self.start_canvas.delete("all")
+        self.start_canvas.create_rectangle(0, 0, 90, 90, fill=self.start_hex, outline="")
+        self.end_canvas.delete("all")
+        self.end_canvas.create_rectangle(0, 0, 90, 90, fill=self.end_hex, outline="")
+
+        w, h = 280, 40
+        sr, sg, sb = hex_to_rgb(self.start_hex)
+        er, eg, eb = hex_to_rgb(self.end_hex)
+        img = Image.new("RGB", (w, h))
+        draw = ImageDraw.Draw(img)
+        for x in range(w):
+            t = x / (w - 1)
+            r = int(sr + (er - sr) * t)
+            g = int(sg + (eg - sg) * t)
+            b = int(sb + (eb - sb) * t)
+            draw.line([(x, 0), (x, h)], fill=(r, g, b))
+        self._preview_photo = ImageTk.PhotoImage(img)
+        self.preview_canvas.delete("all")
+        self.preview_canvas.create_image(0, 0, image=self._preview_photo, anchor="nw")
+
+    def _pick_start(self):
+        picker = PhotoshopColorPicker(self, initial_hex=self.start_hex, title_text="시작색(아래) 선택")
+        if picker.result:
+            self.start_hex = picker.result
+            self._refresh()
+
+    def _pick_end(self):
+        picker = PhotoshopColorPicker(self, initial_hex=self.end_hex, title_text="끝색(위) 선택")
+        if picker.result:
+            self.end_hex = picker.result
+            self._refresh()
+
+    def _on_ok(self):
+        self.result = (self.start_hex, self.end_hex)
+        self.grab_release()
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.grab_release()
+        self.destroy()
 
 
 class ColorPaletteApp(tk.Tk):
@@ -705,7 +1035,6 @@ class ColorPaletteApp(tk.Tk):
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
-            menu.destroy()
 
     # ---------- 단색 지정 ----------
 
@@ -713,9 +1042,9 @@ class ColorPaletteApp(tk.Tk):
         current_set = self.data["sets"][self.data["current_set"]]
         slot_data = current_set[slot]
         initial = slot_data["color"] if slot_data and slot_data["type"] == "solid" else "#ffffff"
-        rgb, hex_color = colorchooser.askcolor(color=initial, title="색상 선택")
-        if hex_color:
-            self._set_slot_solid(slot, hex_color)
+        picker = PhotoshopColorPicker(self, initial_hex=initial, title_text="색상 선택")
+        if picker.result:
+            self._set_slot_solid(slot, picker.result)
 
     def _pick_solid_screen(self, slot):
         self.withdraw()
@@ -743,13 +1072,14 @@ class ColorPaletteApp(tk.Tk):
     # ---------- 그라데이션 지정 ----------
 
     def _pick_gradient_palette(self, slot):
-        _, start_hex = colorchooser.askcolor(title="그라데이션 - ① 아래쪽(시작) 색상 선택")
-        if not start_hex:
-            return
-        _, end_hex = colorchooser.askcolor(title="그라데이션 - ② 위쪽(끝) 색상 선택")
-        if not end_hex:
-            return
-        self._set_slot_gradient(slot, start_hex, end_hex)
+        current_set = self.data["sets"][self.data["current_set"]]
+        slot_data = current_set[slot]
+        init_start = slot_data["start"] if slot_data and slot_data["type"] == "gradient" else "#ffffff"
+        init_end = slot_data["end"] if slot_data and slot_data["type"] == "gradient" else "#000000"
+        dialog = GradientPickerDialog(self, initial_start=init_start, initial_end=init_end)
+        if dialog.result:
+            start_hex, end_hex = dialog.result
+            self._set_slot_gradient(slot, start_hex, end_hex)
 
     def _pick_gradient_screen(self, slot):
         self.withdraw()
