@@ -977,7 +977,7 @@ class ColorPaletteApp(tk.Tk):
         text = self.data["set_names"][idx]
         selected = (idx == self.data["current_set"])
         fill = T("tab_selected_bg") if selected else T("tab_unselected_bg")
-        text_color = "#ffffff" if selected else T("text_dark")
+        text_color = T("tab_selected_text") if selected else T("tab_unselected_text")
         w = int(canvas["width"])
         draw_rounded_rect(canvas, 1, 1, w - 1, TAB_HEIGHT - 1, TAB_RADIUS, fill=fill, outline="")
         canvas.create_text(w / 2, TAB_HEIGHT / 2, text=text, fill=text_color,
