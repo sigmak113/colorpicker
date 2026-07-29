@@ -111,10 +111,12 @@ FONT_PATH = get_asset_path("assets", "fonts", "Paperlogy-8ExtraBold.ttf")
 
 
 def default_data():
+    """저장된 데이터가 아직 없을 때(첫 실행) 기본으로 보여줄 값 - 가독성 좋은 색상 세트를 기본 제공"""
+    readability_colors = ["#fe01a9", "#f5e712", "#04f31d", "#18fef8", "#d6f508"]
     return {
         "current_set": 0,
-        "set_names": ["세트 1"],
-        "sets": [[None] * SLOT_COUNT],
+        "set_names": ["가독성"],
+        "sets": [[{"type": "solid", "color": c} for c in readability_colors]],
     }
 
 
