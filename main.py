@@ -336,8 +336,28 @@ def render_preview(slot_data, bg_rgb, w=PREVIEW_W, h=PREVIEW_H):
     return img
 
 
+def get_virtual_screen_geometry():
+    """모든 모니터를 합친 가상 화면의 좌상단 좌표(x,y)와 크기(w,h)를 반환.
+    (Windows 전용 API - 다른 OS거나 실패하면 None 반환 -> 주 모니터 기준으로 대체 동작)"""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN = 76, 77
+            SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN = 78, 79
+            x = user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
+            y = user32.GetSystemMetrics(SM_YVIRTUALSCREEN)
+            w = user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+            h = user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)
+            if w > 0 and h > 0:
+                return x, y, w, h
+        except Exception as e:
+            safe_log("가상 화면 정보 조회 실패:", e)
+    return None
+
+
 class EyedropperOverlay(tk.Toplevel):
-    """화면 전체를 캡처해서 보여주고, 클릭한 픽셀의 색상을 골라주는 오버레이 창"""
+    """화면 전체(멀티 모니터 포함)를 캡처해서 보여주고, 클릭한 픽셀의 색상을 골라주는 오버레이 창"""
 
     def __init__(self, master, on_pick, on_cancel=None,
                  prompt_text="화면을 클릭해서 색상을 추출하세요.  (ESC: 취소)"):
@@ -352,12 +372,20 @@ class EyedropperOverlay(tk.Toplevel):
                 self.on_cancel()
             return
 
-        self.screenshot = ImageGrab.grab()
+        try:
+            self.screenshot = ImageGrab.grab(all_screens=True)
+        except TypeError:
+            # 구버전 Pillow는 all_screens 인자가 없음 -> 주 모니터만 캡처
+            self.screenshot = ImageGrab.grab()
+
         self.img_w, self.img_h = self.screenshot.size
+
+        vs = get_virtual_screen_geometry()
+        origin_x, origin_y = (vs[0], vs[1]) if vs else (0, 0)
 
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.geometry(f"{self.img_w}x{self.img_h}+0+0")
+        self.geometry(f"{self.img_w}x{self.img_h}+{origin_x}+{origin_y}")
         self.config(cursor="crosshair")
 
         self.tk_bg_image = ImageTk.PhotoImage(self.screenshot)
