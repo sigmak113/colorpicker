@@ -24,7 +24,10 @@ def get_windows_dpi_scale():
     - DPI 인식을 켜지 않으면: OS가 화면 전체를 배율만큼 흐릿하게 확대해서 그려버려서,
       스포이드로 캡처한 화면이 실제보다 커 보이고 다른 모니터까지 넘어가는 문제가 생김.
     - DPI 인식만 켜고 배율을 보정 안 하면: 이번엔 반대로 프로그램이 실제 배율 없이
-      작게(원래 디자인 그대로의 픽셀 크기로) 보임 -> 아래 배율값으로 UI 크기를 직접 키워서 보정."""
+      작게(원래 디자인 그대로의 픽셀 크기로) 보임 -> 아래 배율값으로 UI 크기를 직접 키워서 보정.
+    - 모니터마다 배율이 다른 경우(예: 4K는 150%, FHD는 100%), '주 모니터' 배율만 가져오면
+      다른 모니터에서 프로그램을 실행했을 때 크기가 안 맞음 -> 마우스 커서가 있는(=지금
+      실제로 쓰고 있는) 모니터의 배율을 우선 조회."""
     if sys.platform != "win32":
         return 1.0
     try:
@@ -34,6 +37,33 @@ def get_windows_dpi_scale():
             ctypes.windll.user32.SetProcessDPIAware()  # 구버전 Windows 대체
         except Exception:
             pass
+
+    # 1순위: 마우스 커서가 있는 모니터의 배율 (다중 모니터, 모니터별 배율이 다를 때 정확)
+    try:
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+
+        MONITOR_DEFAULTTONEAREST = 2
+        ctypes.windll.user32.MonitorFromPoint.restype = ctypes.c_void_p
+        ctypes.windll.user32.MonitorFromPoint.argtypes = [POINT, ctypes.c_ulong]
+        hmonitor = ctypes.windll.user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+
+        if hmonitor:
+            MDT_EFFECTIVE_DPI = 0
+            dpi_x = ctypes.c_uint()
+            dpi_y = ctypes.c_uint()
+            result = ctypes.windll.shcore.GetDpiForMonitor(
+                ctypes.c_void_p(hmonitor), MDT_EFFECTIVE_DPI, ctypes.byref(dpi_x), ctypes.byref(dpi_y)
+            )
+            if result == 0 and dpi_x.value:  # S_OK
+                return round(dpi_x.value / 96.0, 2)
+    except Exception as e:
+        safe_log("모니터별 DPI 조회 실패, 시스템 기본값으로 대체:", e)
+
+    # 2순위(대체): 시스템 기본(주 모니터) 배율
     try:
         hdc = ctypes.windll.user32.GetDC(0)
         dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
