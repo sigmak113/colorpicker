@@ -418,8 +418,8 @@ class EyedropperOverlay(tk.Toplevel):
             # Windows 전용: 지정한 색만 투명하게 만듦 (전체 화면을 이미지로 안 띄워도
             # 실제 바탕화면이 그대로 비쳐 보이면서, 클릭은 정상적으로 이 창이 받음)
             self.attributes("-transparentcolor", self.TRANSPARENT_KEY)
-        except tk.TclError:
-            pass  # Windows가 아니면 무시(개발/테스트 환경 등)
+        except Exception as e:
+            safe_log("투명 배경 설정 실패(무시하고 계속 진행):", e)
 
         self.canvas = tk.Canvas(self, width=self.img_w, height=self.img_h,
                                  highlightthickness=0, cursor="crosshair", bg=self.TRANSPARENT_KEY)
@@ -845,6 +845,13 @@ class GradientPickerDialog(tk.Toplevel):
 
 
 class ColorPaletteApp(tk.Tk):
+    def report_callback_exception(self, exc, val, tb):
+        """tkinter는 버튼 클릭/마우스 이동 등 콜백에서 예외가 나면 이 메서드로 보고하는데,
+        기본 동작은 sys.stderr에 출력하는 것 -> --noconsole exe는 stderr가 없어서(None)
+        이 보고 시도 자체가 또 다른 예외를 일으켜 프로그램 전체가 꺼져버릴 수 있음.
+        안전하게 로그만 남기고 프로그램은 계속 실행되도록 함."""
+        safe_log("처리되지 않은 오류(무시하고 계속 진행):", val)
+
     def __init__(self):
         super().__init__()
         self.data = load_data()
@@ -1264,7 +1271,11 @@ class ColorPaletteApp(tk.Tk):
         def on_cancel():
             self.deiconify()
 
-        EyedropperOverlay(self, on_pick, on_cancel)
+        try:
+            EyedropperOverlay(self, on_pick, on_cancel)
+        except Exception as e:
+            safe_log("스포이드 실행 실패:", e)
+            self.deiconify()
 
     def _set_slot_solid(self, slot, hex_color):
         hex_color = hex_color.lower()
@@ -1298,8 +1309,12 @@ class ColorPaletteApp(tk.Tk):
         def on_cancel():
             self.deiconify()
 
-        EyedropperOverlay(self, on_pick_start, on_cancel,
-                           prompt_text="① 위쪽(시작) 색상을 클릭하세요  (ESC: 취소)")
+        try:
+            EyedropperOverlay(self, on_pick_start, on_cancel,
+                               prompt_text="① 위쪽(시작) 색상을 클릭하세요  (ESC: 취소)")
+        except Exception as e:
+            safe_log("스포이드 실행 실패:", e)
+            self.deiconify()
 
     def _launch_gradient_end_overlay(self, slot, start_hex):
         def on_pick_end(end_hex):
@@ -1309,8 +1324,12 @@ class ColorPaletteApp(tk.Tk):
         def on_cancel():
             self.deiconify()
 
-        EyedropperOverlay(self, on_pick_end, on_cancel,
-                           prompt_text="② 아래쪽(끝) 색상을 클릭하세요  (ESC: 취소)")
+        try:
+            EyedropperOverlay(self, on_pick_end, on_cancel,
+                               prompt_text="② 아래쪽(끝) 색상을 클릭하세요  (ESC: 취소)")
+        except Exception as e:
+            safe_log("스포이드 실행 실패:", e)
+            self.deiconify()
 
     def _set_slot_gradient(self, slot, start_hex, end_hex):
         start_hex, end_hex = start_hex.lower(), end_hex.lower()
