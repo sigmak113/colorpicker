@@ -16,6 +16,19 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import simpledialog, messagebox
 
+if sys.platform == "win32":
+    # Windows 디스플레이 배율(125%, 150% 등) 설정 시, DPI 인식을 안 하면 OS가 화면을
+    # 자동으로 확대해서 그려버려 스포이드 캡처가 실제보다 커 보이고 다른 모니터까지
+    # 넘어가는 문제가 생김 -> 반드시 tk.Tk() 생성 전에 호출해야 함
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()  # 구버전 Windows 대체
+        except Exception:
+            pass
+
 try:
     import pyperclip
 except ImportError:
