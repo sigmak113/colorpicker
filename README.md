@@ -56,6 +56,22 @@ python main.py
 4. 빌드가 끝나면 `dist` 폴더 안에 `ColorPaletteManager.exe` 생성됨
 5. 이 exe 파일만 원하는 곳에 복사해서 사용하면 됩니다 (같은 폴더에 `colors_data.json`이 자동 생성됨)
 
+## 🍎 macOS에서 실행하기
+
+GitHub Actions에서 Windows용 exe와 함께 **macOS용 앱도 자동으로 빌드**됩니다.
+Actions 결과의 Artifacts에서 `ColorPaletteManager-mac`을 받으면 됩니다 (zip 안에 `.app` 파일).
+
+macOS는 Apple 정식 인증(유료 개발자 계정)이 없는 앱을 처음 열 때 차단합니다. 받은 분은 아래 중 한 가지로 첫 실행만 해주면 됩니다:
+
+- **방법 1**: `ColorPaletteManager.app`을 더블클릭 대신 **우클릭(또는 Control+클릭) → 열기** 선택 → 뜨는 경고창에서 다시 **열기** 클릭
+- **방법 2 (터미널)**:
+  ```
+  xattr -cr ColorPaletteManager.app
+  ```
+  실행 후 더블클릭
+
+한 번만 이렇게 열어주면 그다음부터는 평소처럼 더블클릭으로 실행됩니다.
+
 ## 파일 구성
 
 - `main.py` — 프로그램 본체
