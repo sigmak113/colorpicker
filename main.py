@@ -587,15 +587,24 @@ class PhotoshopColorPicker(tk.Toplevel):
 
     def _redraw_sv_square(self):
         size = PICKER_SQ_SIZE
-        data = []
-        for y in range(size):
-            v = 1 - y / (size - 1)
-            for x in range(size):
-                s = x / (size - 1)
-                r, g, b = colorsys.hsv_to_rgb(self.h, s, v)
-                data.append((int(r * 255), int(g * 255), int(b * 255)))
-        img = Image.new("RGB", (size, size))
-        img.putdata(data)
+        r0, g0, b0 = colorsys.hsv_to_rgb(self.h, 1, 1)
+        hue_rgb = (int(r0 * 255), int(g0 * 255), int(b0 * 255))
+
+        # PIL composite로 한 번에 채도/명도 그라데이션 생성 (픽셀 단위 파이썬 루프보다 훨씬 빠름)
+        white_img = Image.new("RGB", (size, size), (255, 255, 255))
+        hue_img = Image.new("RGB", (size, size), hue_rgb)
+        black_img = Image.new("RGB", (size, size), (0, 0, 0))
+
+        h_mask_row = Image.new("L", (size, 1))
+        h_mask_row.putdata([int(255 * x / (size - 1)) for x in range(size)])
+        h_mask = h_mask_row.resize((size, size))
+        sat_composite = Image.composite(hue_img, white_img, h_mask)
+
+        v_mask_col = Image.new("L", (1, size))
+        v_mask_col.putdata([int(255 * y / (size - 1)) for y in range(size)])
+        v_mask = v_mask_col.resize((size, size))
+        img = Image.composite(black_img, sat_composite, v_mask)
+
         self._sq_photo = ImageTk.PhotoImage(img)
         self.sq_canvas.delete("all")
         self.sq_canvas.create_image(0, 0, image=self._sq_photo, anchor="nw")
