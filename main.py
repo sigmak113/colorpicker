@@ -38,12 +38,17 @@ def enable_dpi_awareness():
 
 
 enable_dpi_awareness()
-UI_SCALE = 1.0  # 프로그램 UI는 모니터 배율과 무관하게 항상 같은 크기로 고정
+UI_SCALE = 0.7  # 프로그램 UI 크기를 고정 70%로 축소 (모니터·배율과 무관하게 항상 동일)
 
 
 def S(px):
     """배율을 반영한 픽셀 크기 (정수, 최소 1)"""
     return max(1, int(round(px * UI_SCALE)))
+
+
+def FS(pt):
+    """배율을 반영한 폰트 크기 (정수, 최소 6)"""
+    return max(6, int(round(pt * UI_SCALE)))
 
 try:
     import pyperclip
@@ -68,7 +73,7 @@ MAGNIFIER_GRID_PX = 11
 TAB_HEIGHT = S(32)
 TAB_RADIUS = S(16)
 TAB_PADX = S(16)
-TAB_FONT = ("맑은 고딕", 10, "bold")
+TAB_FONT = ("맑은 고딕", FS(10), "bold")
 
 # 라이트/다크 테마
 LIGHT_THEME = {
@@ -866,7 +871,7 @@ class ColorPaletteApp(tk.Tk):
                            fill=T("card_bg"), outline=T("border"))
         label = "다크" if CURRENT_THEME_NAME == "light" else "라이트"
         self.theme_canvas.create_text(THEME_BTN_W / 2, TAB_HEIGHT / 2, text=label,
-                                       fill=T("text_dark"), font=("맑은 고딕", 9, "bold"))
+                                       fill=T("text_dark"), font=("맑은 고딕", FS(9), "bold"))
 
     def _toggle_theme(self):
         new_name = "dark" if CURRENT_THEME_NAME == "light" else "light"
@@ -902,7 +907,7 @@ class ColorPaletteApp(tk.Tk):
                                fill=T("card_bg"), outline=T("border"))
             text_color = T("text_dark")
         self.pin_canvas.create_text(TAB_HEIGHT / 2, TAB_HEIGHT / 2, text="TOP",
-                                     fill=text_color, font=("맑은 고딕", 7, "bold"))
+                                     fill=text_color, font=("맑은 고딕", FS(7), "bold"))
 
     def _toggle_always_on_top(self):
         current = bool(self.attributes("-topmost"))
@@ -963,7 +968,7 @@ class ColorPaletteApp(tk.Tk):
         hint = tk.Label(
             self,
             text="세트 더블클릭: 이름 변경 · 세트 우클릭: 삭제  |  색상 좌클릭: 복사 · 색상 우클릭: 지정/그라데이션",
-            bg=T("bg"), fg=T("text_muted"), font=("맑은 고딕", 9)
+            bg=T("bg"), fg=T("text_muted"), font=("맑은 고딕", FS(9))
         )
         hint.pack(pady=(0, 12), padx=16)
 
@@ -985,14 +990,14 @@ class ColorPaletteApp(tk.Tk):
             canvas.bind("<Button-3>", lambda e, s=slot: self._show_context_menu(e, s))
 
             label = tk.Label(frame, text="비어있음", bg=T("bg"), fg=T("text_muted"),
-                              font=("Consolas", 8), wraplength=SWATCH_SIZE, justify="center")
+                              font=("Consolas", FS(8)), wraplength=SWATCH_SIZE, justify="center")
             label.pack(pady=(6, 0))
 
             self.swatch_widgets.append((frame, canvas, label))
 
         self.status_label = tk.Label(
             self, text="색상을 클릭하면 클립보드에 복사됩니다.",
-            bg=T("bg"), fg=T("status_green"), font=("맑은 고딕", 10, "bold")
+            bg=T("bg"), fg=T("status_green"), font=("맑은 고딕", FS(10), "bold")
         )
         self.status_label.pack(pady=(14, 10))
 
@@ -1018,7 +1023,7 @@ class ColorPaletteApp(tk.Tk):
         size = TAB_HEIGHT
         canvas = tk.Canvas(parent, width=size, height=size, bg=T("bg"), highlightthickness=0, cursor="hand2")
         draw_rounded_rect(canvas, 1, 1, size - 1, size - 1, BUTTON_RADIUS, fill=T("card_bg"), outline=T("border"))
-        canvas.create_text(size / 2, size / 2, text=text, fill=T("text_dark"), font=("맑은 고딕", 10, "bold"))
+        canvas.create_text(size / 2, size / 2, text=text, fill=T("text_dark"), font=("맑은 고딕", FS(10), "bold"))
         canvas.bind("<Button-1>", lambda e: command())
         return canvas
 
@@ -1132,7 +1137,7 @@ class ColorPaletteApp(tk.Tk):
                                fill=T("card_bg"), outline=T("border"))
             if slot_data is None:
                 canvas.create_text(SWATCH_SIZE / 2, SWATCH_SIZE / 2, text="+",
-                                    fill=T("text_faint"), font=("맑은 고딕", 20))
+                                    fill=T("text_faint"), font=("맑은 고딕", FS(20)))
                 label.config(text="비어있음")
             elif slot_data["type"] == "solid":
                 img = make_rounded_solid_image(slot_data["color"], inner, inner, COLOR_RADIUS)
