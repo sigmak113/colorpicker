@@ -19,26 +19,11 @@ from tkinter import simpledialog, messagebox
 import ctypes  # 표준 라이브러리, import 자체는 모든 OS에서 안전함 (windll은 Windows 전용)
 
 
-def enable_dpi_awareness():
-    """Windows에서 'DPI 인식'만 켜서 스포이드 화면 캡처가 실제 픽셀 기준으로 정확하게 이뤄지도록 함.
-    (이걸 안 하면 OS가 화면 전체를 배율만큼 자동으로 확대해서 그려버려, 스포이드로 캡처한 화면이
-    실제보다 커 보이고 다른 모니터까지 넘어가는 문제가 생김)
-    ※ 프로그램 자체의 UI 크기는 이 배율과 상관없이 항상 고정 크기로 표시함(아래 UI_SCALE=1.0 고정).
-      모니터/배율마다 다르게 계산해서 맞추려 해봤지만 오히려 더 혼란스러워서, 그냥 어떤 모니터·
-      배율에서도 항상 동일한 크기로 보이는 쪽이 가장 예측 가능하고 확실한 방식이라 이렇게 정리함."""
-    if sys.platform != "win32":
-        return
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
-    except Exception:
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()  # 구버전 Windows 대체
-        except Exception:
-            pass
+# DPI 인식을 켜면 스포이드 캡처는 정확해지지만, Windows가 그리는 제목표시줄(최소화/최대화/닫기
+# 버튼)이 내용물과 다른 비율로 그려져 버림 -> 제목표시줄과 내용물이 통째로 같이 배율 적용되는
+# 원래 방식(DPI 인식 끔)으로 복원.
+UI_SCALE = 1.0
 
-
-enable_dpi_awareness()
-UI_SCALE = 0.7  # 프로그램 UI 크기를 고정 70%로 축소 (모니터·배율과 무관하게 항상 동일)
 
 
 def S(px):
@@ -394,13 +379,18 @@ def get_virtual_screen_geometry():
 
 
 class EyedropperOverlay(tk.Toplevel):
-    """화면 전체(멀티 모니터 포함)를 캡처해서 보여주고, 클릭한 픽셀의 색상을 골라주는 오버레이 창"""
+    """화면 전체(멀티 모니터 포함)를 덮는 투명한 클릭 감지 창.
+    화면 전체를 이미지로 띄우지 않고, 커서 주변만 작은 확대경으로 보여줌
+    -> 배율/해상도 문제로 화면이 커 보이거나 다른 모니터로 넘어가는 문제 자체가 생기지 않음"""
+
+    TRANSPARENT_KEY = "#010203"  # 실제로 쓰이지 않을 색 -> 이 색만 투명 처리됨
 
     def __init__(self, master, on_pick, on_cancel=None,
                  prompt_text="화면을 클릭해서 색상을 추출하세요.  (ESC: 취소)"):
         super().__init__(master)
         self.on_pick = on_pick
         self.on_cancel = on_cancel
+        self.prompt_text = prompt_text
 
         if Image is None:
             messagebox.showerror("오류", "Pillow 라이브러리가 설치되어 있지 않습니다.\npip install pillow")
@@ -423,24 +413,23 @@ class EyedropperOverlay(tk.Toplevel):
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.geometry(f"{self.img_w}x{self.img_h}+{origin_x}+{origin_y}")
-        self.config(cursor="crosshair")
+        self.config(cursor="crosshair", bg=self.TRANSPARENT_KEY)
+        try:
+            # Windows 전용: 지정한 색만 투명하게 만듦 (전체 화면을 이미지로 안 띄워도
+            # 실제 바탕화면이 그대로 비쳐 보이면서, 클릭은 정상적으로 이 창이 받음)
+            self.attributes("-transparentcolor", self.TRANSPARENT_KEY)
+        except tk.TclError:
+            pass  # Windows가 아니면 무시(개발/테스트 환경 등)
 
-        self.tk_bg_image = ImageTk.PhotoImage(self.screenshot)
         self.canvas = tk.Canvas(self, width=self.img_w, height=self.img_h,
-                                 highlightthickness=0, cursor="crosshair")
+                                 highlightthickness=0, cursor="crosshair", bg=self.TRANSPARENT_KEY)
         self.canvas.pack(fill="both", expand=True)
-        self.canvas.create_image(0, 0, image=self.tk_bg_image, anchor="nw")
-
-        self.canvas.create_rectangle(0, 0, 480, 34, fill="#111111", outline="")
-        self.canvas.create_text(
-            10, 17, anchor="w", fill="white",
-            text=prompt_text,
-            font=("맑은 고딕", 11)
-        )
 
         self.magnifier_id = None
         self.hex_text_id = None
         self.hex_bg_id = None
+        self.hint_id = None
+        self.hint_bg_id = None
         self._cancelled_by_click = False
 
         self.canvas.bind("<Motion>", self._on_motion)
@@ -489,6 +478,10 @@ class EyedropperOverlay(tk.Toplevel):
             self.canvas.delete(self.hex_text_id)
         if self.hex_bg_id:
             self.canvas.delete(self.hex_bg_id)
+        if self.hint_id:
+            self.canvas.delete(self.hint_id)
+        if self.hint_bg_id:
+            self.canvas.delete(self.hint_bg_id)
 
         self.magnifier_id = self.canvas.create_image(mx, my, image=self.tk_magnifier_image, anchor="nw")
         self.hex_bg_id = self.canvas.create_rectangle(
@@ -499,6 +492,16 @@ class EyedropperOverlay(tk.Toplevel):
             mx + mag_size / 2, my + mag_size + 13,
             text=hex_color, fill=readable_text_color(hex_color),
             font=("Consolas", 11, "bold")
+        )
+
+        # 안내 문구도 화면 전체가 아니라 커서를 따라다니는 작은 배지로 표시
+        hy = my - 24 if my - 24 > 0 else my + mag_size + 30
+        self.hint_bg_id = self.canvas.create_rectangle(
+            mx, hy, mx + mag_size, hy + 20, fill="#111111", outline=""
+        )
+        self.hint_id = self.canvas.create_text(
+            mx + mag_size / 2, hy + 10, text=self.prompt_text,
+            fill="white", font=("맑은 고딕", 8)
         )
 
     def _on_click(self, event):
