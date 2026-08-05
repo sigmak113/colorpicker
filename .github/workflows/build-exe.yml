@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: 코드 가져오기
@@ -30,3 +30,29 @@ jobs:
         with:
           name: ColorPaletteManager-exe
           path: dist/ColorPaletteManager.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치 (클라우드 서버에만, 내 컴퓨터엔 설치 안 됨)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 필요 라이브러리 설치
+        run: pip install -r requirements.txt
+
+      - name: .app 빌드
+        run: pyinstaller --windowed --name ColorPaletteManager --icon "assets/icon/icon.icns" --add-data "assets:assets" main.py
+
+      - name: .app 압축 (업로드용)
+        run: cd dist && zip -r ColorPaletteManager-mac.zip ColorPaletteManager.app
+
+      - name: 업로드 (다운로드 가능하게)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ColorPaletteManager-mac
+          path: dist/ColorPaletteManager-mac.zip
