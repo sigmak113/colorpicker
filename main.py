@@ -16,18 +16,39 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import simpledialog, messagebox
 
-if sys.platform == "win32":
-    # Windows 디스플레이 배율(125%, 150% 등) 설정 시, DPI 인식을 안 하면 OS가 화면을
-    # 자동으로 확대해서 그려버려 스포이드 캡처가 실제보다 커 보이고 다른 모니터까지
-    # 넘어가는 문제가 생김 -> 반드시 tk.Tk() 생성 전에 호출해야 함
+import ctypes  # 표준 라이브러리, import 자체는 모든 OS에서 안전함 (windll은 Windows 전용)
+
+
+def get_windows_dpi_scale():
+    """Windows 디스플레이 배율(100%/125%/150% 등)을 인식하도록 설정하고, 그 배율값을 반환.
+    - DPI 인식을 켜지 않으면: OS가 화면 전체를 배율만큼 흐릿하게 확대해서 그려버려서,
+      스포이드로 캡처한 화면이 실제보다 커 보이고 다른 모니터까지 넘어가는 문제가 생김.
+    - DPI 인식만 켜고 배율을 보정 안 하면: 이번엔 반대로 프로그램이 실제 배율 없이
+      작게(원래 디자인 그대로의 픽셀 크기로) 보임 -> 아래 배율값으로 UI 크기를 직접 키워서 보정."""
+    if sys.platform != "win32":
+        return 1.0
     try:
-        import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
     except Exception:
         try:
             ctypes.windll.user32.SetProcessDPIAware()  # 구버전 Windows 대체
         except Exception:
             pass
+    try:
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return round(dpi / 96.0, 2) if dpi else 1.0
+    except Exception:
+        return 1.0
+
+
+UI_SCALE = get_windows_dpi_scale()
+
+
+def S(px):
+    """배율을 반영한 픽셀 크기 (정수, 최소 1)"""
+    return max(1, int(round(px * UI_SCALE)))
 
 try:
     import pyperclip
@@ -42,16 +63,16 @@ except ImportError:
 # ---------- 상수 ----------
 
 SLOT_COUNT = 5
-SWATCH_SIZE = 78
-CARD_PAD = 7          # 흰 카드 안에서 색상 사각형까지의 여백
-CARD_RADIUS = 16       # 카드(흰 배경) 모서리 둥글기
-COLOR_RADIUS = 11      # 색상 사각형 모서리 둥글기
+SWATCH_SIZE = S(78)
+CARD_PAD = S(7)          # 흰 카드 안에서 색상 사각형까지의 여백
+CARD_RADIUS = S(16)       # 카드(흰 배경) 모서리 둥글기
+COLOR_RADIUS = S(11)      # 색상 사각형 모서리 둥글기
 MAGNIFIER_ZOOM = 8
 MAGNIFIER_GRID_PX = 11
 
-TAB_HEIGHT = 32
-TAB_RADIUS = 16
-TAB_PADX = 16
+TAB_HEIGHT = S(32)
+TAB_RADIUS = S(16)
+TAB_PADX = S(16)
 TAB_FONT = ("맑은 고딕", 10, "bold")
 
 # 라이트/다크 테마
@@ -90,8 +111,11 @@ def set_theme(name):
     THEME.update(DARK_THEME if CURRENT_THEME_NAME == "dark" else LIGHT_THEME)
 
 
-def make_flat_button(parent, text, command, bg, fg, w=92, h=34, radius=10, font=("맑은 고딕", 10, "bold")):
+def make_flat_button(parent, text, command, bg, fg, w=None, h=None, radius=None, font=("맑은 고딕", 10, "bold")):
     """색상 선택창 등에서 쓰는, 전체 디자인과 어울리는 둥근 버튼"""
+    w = S(92) if w is None else w
+    h = S(34) if h is None else h
+    radius = S(10) if radius is None else radius
     parent_bg = parent["bg"] if "bg" in parent.keys() else "#2b2b2b"
     canvas = tk.Canvas(parent, width=w, height=h, bg=parent_bg, highlightthickness=0, cursor="hand2")
     draw_rounded_rect(canvas, 1, 1, w - 1, h - 1, radius, fill=bg, outline="")
@@ -100,13 +124,13 @@ def make_flat_button(parent, text, command, bg, fg, w=92, h=34, radius=10, font=
     return canvas
 
 
-BUTTON_RADIUS = 10               # 화살표/추가/고정 버튼(둥근 네모)의 반경
-THEME_BTN_W = 48                 # 다크/라이트 전환 버튼 너비
+BUTTON_RADIUS = S(10)               # 화살표/추가/고정 버튼(둥근 네모)의 반경
+THEME_BTN_W = S(48)                 # 다크/라이트 전환 버튼 너비
 
 PREVIEW_TEXT = "자막 미리보기"
-PREVIEW_W = 204
-PREVIEW_H = 62
-PREVIEW_FONT_SIZE = 24
+PREVIEW_W = S(204)
+PREVIEW_H = S(62)
+PREVIEW_FONT_SIZE = S(24)
 
 
 def draw_rounded_rect(canvas, x1, y1, x2, y2, radius, **kwargs):
@@ -491,9 +515,9 @@ class EyedropperOverlay(tk.Toplevel):
             self.on_cancel()
 
 
-PICKER_SQ_SIZE = 200
-PICKER_HUE_W = 24
-PICKER_HUE_GAP = 14
+PICKER_SQ_SIZE = S(200)
+PICKER_HUE_W = S(24)
+PICKER_HUE_GAP = S(14)
 
 
 class PhotoshopColorPicker(tk.Toplevel):
